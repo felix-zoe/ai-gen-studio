@@ -70,6 +70,16 @@ export function useGenerations(
   });
 }
 
+export function useDeleteGeneration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/generations/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["generations"] });
+    },
+  });
+}
+
 // ── Upload image ──────────────────────────────────────────────────────────
 
 export function useUploadImage() {

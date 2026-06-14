@@ -88,6 +88,24 @@ def list_generations(
 
 
 # ---------------------------------------------------------------------------
+# DELETE /api/generations/{id}
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/{generation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_generation(
+    generation_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.get(Generation, generation_id)
+    if not row or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    db.delete(row)
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
 # GET /api/generations/{id}  — single item with optional video status polling
 # ---------------------------------------------------------------------------
 
