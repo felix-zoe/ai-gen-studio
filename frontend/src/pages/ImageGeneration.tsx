@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { Loader2, ImagePlus, Wand2 } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Loader2, ImagePlus, Wand2, Download } from "lucide-react";
 import { useGenerateImage, useUploadImage } from "@/hooks/useGeneration";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,22 +20,48 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-const SIZES = [
-  { label: "1024×1024 (方形)", value: "1024x1024" },
-  { label: "1152×768 (16:9)", value: "1152x768" },
-  { label: "768×1152 (9:16)", value: "768x1152" },
-  { label: "2048×2048 (方形)", value: "2048x2048" },
-  { label: "2304×1536 (16:9)", value: "2304x1536" },
-  { label: "1536×2304 (9:16)", value: "1536x2304" },
+const SENSENOVA_SIZES = [
+  { ratio: "1:1", dim: "2048×2048", value: "2048x2048" },
+  { ratio: "2:3", dim: "1664×2496", value: "1664x2496" },
+  { ratio: "3:2", dim: "2496×1664", value: "2496x1664" },
+  { ratio: "3:4", dim: "1760×2368", value: "1760x2368" },
+  { ratio: "4:3", dim: "2368×1760", value: "2368x1760" },
+  { ratio: "4:5", dim: "1824×2272", value: "1824x2272" },
+  { ratio: "5:4", dim: "2272×1824", value: "2272x1824" },
+  { ratio: "16:9", dim: "2752×1536", value: "2752x1536" },
+  { ratio: "9:16", dim: "1536×2752", value: "1536x2752" },
+  { ratio: "21:9", dim: "3072×1376", value: "3072x1376" },
+  { ratio: "9:21", dim: "1344×3136", value: "1344x3136" },
+];
+
+const COMMON_SIZES = [
+  { ratio: "1:1", dim: "1024×1024", value: "1024x1024" },
+  { ratio: "1:1", dim: "2048×2048", value: "2048x2048" },
+  { ratio: "3:2", dim: "1920×1280", value: "1920x1280" },
+  { ratio: "2:3", dim: "1280×1920", value: "1280x1920" },
+  { ratio: "4:3", dim: "1600×1200", value: "1600x1200" },
+  { ratio: "3:4", dim: "1200×1600", value: "1200x1600" },
+  { ratio: "16:9", dim: "1280×720", value: "1280x720" },
+  { ratio: "9:16", dim: "720×1280", value: "720x1280" },
 ];
 
 export default function ImageGeneration() {
   const [provider, setProvider] = useState("sensenova");
   const [mode, setMode] = useState("text2img");
   const [prompt, setPrompt] = useState("");
-  const [size, setSize] = useState("1024x1024");
+  const [size, setSize] = useState("2048x2048");
   const [imageUrl, setImageUrl] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
+
+  const sizes = provider === "sensenova" ? SENSENOVA_SIZES : COMMON_SIZES;
+
+  // Reset size when provider changes and current size isn't valid for the new provider
+  useEffect(() => {
+    const validSizes = provider === "sensenova" ? SENSENOVA_SIZES : COMMON_SIZES;
+    if (!validSizes.some((s) => s.value === size)) {
+      setSize(validSizes[0].value);
+    }
+  }, [provider]);
 
   const generateMutation = useGenerateImage();
   const uploadMutation = useUploadImage();
@@ -77,7 +103,6 @@ export default function ImageGeneration() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">图片生成</h1>
-        <p className="text-muted-foreground">使用 AI 生成图片</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -88,16 +113,16 @@ export default function ImageGeneration() {
             <CardDescription>选择模型和输入提示词</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Provider */}
+            {/* Model */}
             <div className="space-y-2">
-              <Label>模型提供商</Label>
+              <Label>模型</Label>
               <Select value={provider} onValueChange={setProvider}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sensenova">SenseNova (商汤)</SelectItem>
-                  <SelectItem value="agnes">Agnes Image 2.1</SelectItem>
+                  <SelectItem value="sensenova">sensenova-u1-fast</SelectItem>
+                  <SelectItem value="agnes">agnes-image-2.1-flash</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -124,9 +149,9 @@ export default function ImageGeneration() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {SIZES.map((s) => (
+                  {sizes.map((s) => (
                     <SelectItem key={s.value} value={s.value}>
-                      {s.label}
+                      {s.ratio} ({s.dim})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -229,14 +254,16 @@ export default function ImageGeneration() {
                   className="w-full rounded-lg"
                 />
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => window.open(result.image_url!, "_blank")}
+                  <a
+                    href={result.image_url!}
+                    download
                     className="flex-1"
                   >
-                    查看原图
-                  </Button>
+                    <Button variant="outline" size="sm" className="w-full">
+                      <Download className="h-4 w-4" />
+                      下载
+                    </Button>
+                  </a>
                   <Button size="sm" onClick={resetForm} className="flex-1">
                     继续生成
                   </Button>

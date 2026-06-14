@@ -28,22 +28,22 @@ import {
 import { Progress } from "@/components/ui/progress";
 
 const ASPECT_RATIOS = [
-  { label: "16:9 (横屏)", width: 1152, height: 768 },
-  { label: "9:16 (竖屏)", width: 768, height: 1152 },
+  { label: "16:9 (横屏视频、产品演示、官网展示、YouTube 风格内容)", width: 1152, height: 768 },
+  { label: "9:16 (竖屏短视频、移动端内容、TikTok / Reels / Shorts 风格内容)", width: 768, height: 1152 },
+  { label: "1:1 (方形视频、社交媒体 Feed、角色或商品展示)", width: 1024, height: 1024 },
+  { label: "4:3 (传统横向画幅、通用展示内容)", width: 1152, height: 864 },
+  { label: "3:4 (竖向展示、人物或商品主体突出的视频内容)", width: 864, height: 1152 },
 ];
 
 const DURATION_PRESETS = [
-  { label: "~3 秒", frames: 81 },
-  { label: "~5 秒", frames: 121 },
-  { label: "~10 秒", frames: 241 },
-  { label: "~18 秒", frames: 441 },
+  { label: "3秒", frames: 81, estimate: "约 30~60 秒" },
+  { label: "5秒", frames: 121, estimate: "约 1~2 分钟" },
+  { label: "10秒", frames: 241, estimate: "约 2~3 分钟" },
+  { label: "18秒", frames: 441, estimate: "约 3~5 分钟" },
 ];
 
-function formatDuration(frames: number, fps: number): string {
-  return `${(frames / fps).toFixed(1)} 秒`;
-}
-
 export default function VideoGeneration() {
+  const [provider, setProvider] = useState("agnes");
   const [mode, setMode] = useState("text2vid");
   const [prompt, setPrompt] = useState("");
   const [aspectIndex, setAspectIndex] = useState(0);
@@ -63,7 +63,7 @@ export default function VideoGeneration() {
   const frameRate = 24;
 
   const pollData = pollQuery.data;
-  const isPolling = pollQuery.isFetching && pollingId !== null;
+  const isPolling = pollingId !== null && pollData && !isTerminal;
   const isTerminal =
     pollData?.status === "completed" || pollData?.status === "failed";
 
@@ -83,7 +83,7 @@ export default function VideoGeneration() {
     if (!prompt.trim()) return;
     generateMutation.mutate(
       {
-        provider: "agnes",
+        provider,
         mode,
         prompt: prompt.trim(),
         width: aspect.width,
@@ -118,7 +118,6 @@ export default function VideoGeneration() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">视频生成</h1>
-        <p className="text-muted-foreground">使用 Agnes Video 2.0 生成视频</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -129,6 +128,19 @@ export default function VideoGeneration() {
             <CardDescription>选择模式和输入提示词</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Model */}
+            <div className="space-y-2">
+              <Label>模型</Label>
+              <Select value={provider} onValueChange={setProvider}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="agnes">agnes-video-v2.0</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Mode */}
             <div className="space-y-2">
               <Label>生成模式</Label>
@@ -176,7 +188,7 @@ export default function VideoGeneration() {
                 <SelectContent>
                   {DURATION_PRESETS.map((d, i) => (
                     <SelectItem key={i} value={String(i)}>
-                      {d.label} ({formatDuration(d.frames, frameRate)})
+                      {d.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -281,6 +293,11 @@ export default function VideoGeneration() {
                 </div>
                 {pollData?.progress != null && (
                   <Progress value={pollData.progress} className="h-2" />
+                )}
+                {pollData?.status === "in_progress" && (
+                  <p className="text-center text-xs text-muted-foreground">
+                    {DURATION_PRESETS[framesIndex].estimate}
+                  </p>
                 )}
               </div>
             )}

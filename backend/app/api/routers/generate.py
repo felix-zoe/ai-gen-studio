@@ -1,4 +1,6 @@
-"""Image generation endpoint — calls upstream APIs and stores results in COS."""
+import logging
+
+logger = logging.getLogger("uvicorn")
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -165,6 +167,7 @@ async def _call_agnes(
             "extra_body": extra_body,
         }
 
+        logger.warning(f"=== AGNES DEBUG === key prefix={api_key[:12]}... key_len={len(api_key)} size={body.size}")
         resp = await client.post(
             AGNES_URL,
             headers={
@@ -173,6 +176,7 @@ async def _call_agnes(
             },
             json=payload,
         )
+        logger.warning(f"=== AGNES DEBUG === upstream_status={resp.status_code} body={resp.text[:600]}")
         _raise_on_bad_status(resp)
 
         data = resp.json()
@@ -192,7 +196,7 @@ def _raise_on_bad_status(resp: httpx.Response) -> None:
     """Raise HTTPException if upstream returned an error."""
     if resp.status_code == 200:
         return
-    detail = f"Upstream API error (HTTP {resp.status_code}): {resp.text[:300]}"
+    detail = f"Upstream API error (HTTP {resp.status_code}): {resp.text[:500]}"
     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
 
 

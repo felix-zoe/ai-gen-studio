@@ -1,0 +1,19 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]: AI Gen Studio
+    - generic [ref=e7]: 登录以继续
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - text: 邮箱
+        - textbox "邮箱" [ref=e11]:
+          - /placeholder: you@example.com
+      - generic [ref=e12]:
+        - text: 密码
+        - textbox "密码" [ref=e13]
+    - generic [ref=e14]:
+      - button "登录" [ref=e15] [cursor=pointer]
+      - paragraph [ref=e16]:
+        - text: 还没有账号？
+        - link "注册" [ref=e17] [cursor=pointer]:
+          - /url: /register

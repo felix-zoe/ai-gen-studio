@@ -226,23 +226,13 @@ export default function History() {
                 </span>
               </div>
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    window.open(
-                      preview.video_url || preview.image_url || undefined,
-                      "_blank",
-                    )
-                  }
-                  disabled={!preview.video_url && !preview.image_url}
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  查看原图
-                </Button>
-                {preview.type === "video" && preview.video_url && (
-                  <a href={preview.video_url} download>
-                    <Button size="sm">
+                {(preview.image_url || preview.video_url) && (
+                  <a
+                    href={preview.video_url || preview.image_url!}
+                    download
+                    className="flex-1"
+                  >
+                    <Button variant="outline" size="sm" className="w-full">
                       <Download className="h-4 w-4" />
                       下载
                     </Button>
