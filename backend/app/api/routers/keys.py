@@ -1,0 +1,172 @@
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_user
+from app.core.crypto import decrypt, encrypt
+from app.db.session import get_db
+from app.models.api_key import ApiKey, Provider
+from app.models.user import User
+from app.schemas.api_key import KeyStatus, KeysStatusResponse, KeyTestResponse, SaveKeyRequest
+
+router = APIRouter(prefix="/keys", tags=["keys"])
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+_MASK_SUFFIX_LEN = 4
+
+
+def _mask(raw: str) -> str:
+    """Return masked key like ``sk-****abcd``."""
+    if len(raw) <= _MASK_SUFFIX_LEN + 3:
+        return raw[:3] + "****" + raw[-min(_MASK_SUFFIX_LEN, len(raw)):]
+    return raw[:3] + "****" + raw[-_MASK_SUFFIX_LEN:]
+
+
+def _raise_on_unknown_provider(provider: str) -> Provider:
+    try:
+        return Provider(provider)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown provider: {provider}")
+
+
+# ── GET /api/keys ─────────────────────────────────────────────────────────────
+
+@router.get("")
+def list_keys(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> KeysStatusResponse:
+    rows = db.execute(
+        select(ApiKey).where(ApiKey.user_id == user.id)
+    ).scalars().all()
+
+    lookup: dict[str, ApiKey] = {row.provider.value: row for row in rows}
+
+    keys = []
+    for p in Provider:
+        row = lookup.get(p.value)
+        if row:
+            plain = decrypt(row.encrypted_key, row.iv)
+            keys.append(KeyStatus(provider=p.value, configured=True, masked_key=_mask(plain)))
+        else:
+            keys.append(KeyStatus(provider=p.value, configured=False, masked_key=None))
+
+    return KeysStatusResponse(keys=keys)
+
+
+# ── PUT /api/keys/{provider} ──────────────────────────────────────────────────
+
+@router.put("/{provider}")
+def save_key(
+    provider: str,
+    body: SaveKeyRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    prov = _raise_on_unknown_provider(provider)
+    encrypted, iv = encrypt(body.key)
+
+    existing = db.execute(
+        select(ApiKey).where(ApiKey.user_id == user.id, ApiKey.provider == prov)
+    ).scalar_one_or_none()
+
+    if existing:
+        existing.encrypted_key = encrypted
+        existing.iv = iv
+    else:
+        db.add(ApiKey(user_id=user.id, provider=prov, encrypted_key=encrypted, iv=iv))
+
+    db.commit()
+    return {"message": f"{provider} key saved"}
+
+
+# ── DELETE /api/keys/{provider} ───────────────────────────────────────────────
+
+@router.delete("/{provider}")
+def delete_key(
+    provider: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    prov = _raise_on_unknown_provider(provider)
+    existing = db.execute(
+        select(ApiKey).where(ApiKey.user_id == user.id, ApiKey.provider == prov)
+    ).scalar_one_or_none()
+
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Key not found")
+
+    db.delete(existing)
+    db.commit()
+    return {"message": f"{provider} key deleted"}
+
+
+# ── POST /api/keys/{provider}/test ────────────────────────────────────────────
+
+@router.post("/{provider}/test")
+async def test_key(
+    provider: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    prov = _raise_on_unknown_provider(provider)
+    row = db.execute(
+        select(ApiKey).where(ApiKey.user_id == user.id, ApiKey.provider == prov)
+    ).scalar_one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Key not found")
+
+    raw_key = decrypt(row.encrypted_key, row.iv)
+
+    try:
+        if prov == Provider.sensenova:
+            ok, msg = await _test_sensenova(raw_key)
+        else:
+            ok, msg = await _test_agnes(raw_key)
+
+        return KeyTestResponse(ok=ok, message=msg)
+    except httpx.HTTPError as e:
+        return KeyTestResponse(ok=False, message=f"Network error: {e}")
+
+
+async def _test_sensenova(api_key: str) -> tuple[bool, str]:
+    """Issue a minimal request — a known-small model call."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://token.sensenova.cn/v1/images/generations",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": "sensenova-u1-fast", "prompt": "test", "n": 1, "size": "2048x2048"},
+        )
+    return _interpret(resp)
+
+
+async def _test_agnes(api_key: str) -> tuple[bool, str]:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://apihub.agnes-ai.com/v1/images/generations",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "agnes-image-2.1-flash",
+                "prompt": "test",
+                "extra_body": {"response_format": "url"},
+            },
+        )
+    return _interpret(resp)
+
+
+def _interpret(resp: httpx.Response) -> tuple[bool, str]:
+    if resp.status_code == 200:
+        return True, "API key is valid and reachable"
+    if resp.status_code in (401, 403):
+        return False, "Invalid API key or insufficient permissions"
+    if resp.status_code == 429:
+        return True, "API key is valid (rate limited)"  # key itself works
+    # Other error — still likely "key accepted, something else wrong"
+    return False, f"Unexpected response (HTTP {resp.status_code}): {resp.text[:200]}"
