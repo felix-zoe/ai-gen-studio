@@ -182,22 +182,32 @@ def _interpret(resp: httpx.Response) -> tuple[bool, str]:
     - ok=True: Key 确定有效
     - ok=False: Key 无效或无法验证
     """
+    # 尝试解析响应体，用于更精细的判断
+    try:
+        data = resp.json()
+    except Exception:
+        data = {}
+
     # ── 确定有效 ──────────────────────────────────────────────────────────────
     if resp.status_code == 200:
-        # 无论响应体是成功结果还是校验错误，能到 200 说明认证已通过
         return True, "API Key 有效"
     if resp.status_code == 429:
         return True, "API Key 有效（当前请求过于频繁，请稍后再试）"
     # 400/422 说明认证已通过，只是参数校验失败
     if resp.status_code in (400, 422):
         return True, "API Key 有效"
+    # 500 但错误信息是参数缺失（如 Agnes 的 "missing required argument"），说明认证已通过
+    if resp.status_code == 500:
+        err_msg = str(data.get("error", {}).get("message", "")).lower()
+        if "missing" in err_msg or "required" in err_msg or "argument" in err_msg:
+            return True, "API Key 有效"
 
     # ── 确定无效 ──────────────────────────────────────────────────────────────
     if resp.status_code in (401, 403):
         return False, "API Key 无效或权限不足"
 
     # ── 无法判断（服务问题）──────────────────────────────────────────────────
-    if resp.status_code in (502, 503, 504):
+    if resp.status_code in (500, 502, 503, 504):
         return False, "上游服务暂时不可用，无法验证 Key，请稍后再试"
 
     # ── 未知情况 ──────────────────────────────────────────────────────────────
