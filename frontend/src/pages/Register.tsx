@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import EmailInput from "@/components/EmailInput";
 
 export default function Register() {
   const { register } = useAuth();
@@ -58,12 +59,10 @@ export default function Register() {
             )}
             <div className="space-y-2">
               <Label htmlFor="email">邮箱</Label>
-              <Input
+              <EmailInput
                 id="email"
-                type="email"
-                placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={setEmail}
                 required
               />
             </div>

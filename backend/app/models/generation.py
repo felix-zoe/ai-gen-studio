@@ -75,7 +75,7 @@ class Generation(Base):
 
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[GenerationStatus] = mapped_column(
-        Enum(GenerationStatus), nullable=False, default=GenerationStatus.completed
+        Enum(GenerationStatus), nullable=False, default=GenerationStatus.queued
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

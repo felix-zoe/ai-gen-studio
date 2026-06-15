@@ -1,3 +1,4 @@
+import secrets
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
@@ -13,8 +14,8 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./app.db"
 
-    # JWT
-    SECRET_KEY: str = "change-me"
+    # JWT — auto-generated if not set in .env
+    SECRET_KEY: str = secrets.token_hex(32)
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24h
 
     # Master encryption key for AES-256-GCM (API Key storage)

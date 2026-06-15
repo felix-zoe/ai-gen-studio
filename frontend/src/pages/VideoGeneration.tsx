@@ -71,6 +71,11 @@ export default function VideoGeneration() {
         if (idx >= 0) setAspectIndex(idx);
       }
     }
+    if (sp.get("num_frames")) {
+      const frames = parseInt(sp.get("num_frames")!);
+      const idx = DURATION_PRESETS.findIndex((p) => p.frames === frames);
+      if (idx >= 0) setFramesIndex(idx);
+    }
   }, [searchParams]);
 
   const generateMutation = useGenerateVideo();
@@ -337,11 +342,15 @@ export default function VideoGeneration() {
 
             {/* Prompt */}
             <div className="space-y-2">
-              <Label>提示词</Label>
+              <div className="flex justify-between">
+                <Label>提示词</Label>
+                <span className="text-xs text-muted-foreground">{prompt.length}/4000</span>
+              </div>
               <Textarea
                 placeholder="描述你想要的视频内容..."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                maxLength={4000}
                 rows={4}
               />
             </div>

@@ -1,6 +1,7 @@
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -79,7 +80,14 @@ def save_key(
     else:
         db.add(ApiKey(user_id=user.id, provider=prov, encrypted_key=encrypted, iv=iv))
 
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save API key. Please try again.",
+        )
     return {"message": f"{provider} key saved"}
 
 
@@ -99,8 +107,15 @@ def delete_key(
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Key not found")
 
-    db.delete(existing)
-    db.commit()
+    try:
+        db.delete(existing)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete API key. Please try again.",
+        )
     return {"message": f"{provider} key deleted"}
 
 
@@ -130,7 +145,7 @@ async def test_key(
 
         return KeyTestResponse(ok=ok, message=msg)
     except httpx.HTTPError as e:
-        return KeyTestResponse(ok=False, message=f"Network error: {e}")
+        return KeyTestResponse(ok=False, message=f"网络错误：{e}")
 
 
 async def _test_sensenova(api_key: str) -> tuple[bool, str]:
@@ -163,10 +178,9 @@ async def _test_agnes(api_key: str) -> tuple[bool, str]:
 
 def _interpret(resp: httpx.Response) -> tuple[bool, str]:
     if resp.status_code == 200:
-        return True, "API key is valid and reachable"
+        return True, "API Key 有效"
     if resp.status_code in (401, 403):
-        return False, "Invalid API key or insufficient permissions"
+        return False, "API Key 无效或权限不足"
     if resp.status_code == 429:
-        return True, "API key is valid (rate limited)"  # key itself works
-    # Other error — still likely "key accepted, something else wrong"
-    return False, f"Unexpected response (HTTP {resp.status_code}): {resp.text[:200]}"
+        return True, "API Key 有效（当前请求过于频繁，请稍后再试）"
+    return False, f"未知响应（HTTP {resp.status_code}）"

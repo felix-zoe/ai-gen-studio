@@ -5,18 +5,16 @@ logger = logging.getLogger("uvicorn")
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
-from app.core.crypto import decrypt
+from app.api.deps import get_current_user, lookup_api_key
 from app.db.session import get_db
-from app.models.api_key import ApiKey, Provider
-from app.models.generation import Generation, GenerationMode, GenerationStatus
+from app.models.api_key import Provider
+from app.models.generation import Generation, GenerationMode, GenerationStatus, GenerationType
 from app.models.user import User
 from app.schemas.generation import GenerateImageRequest, GenerationResponse
 from app.api.routers.generations import _build_response
-from app.utils.cos import get_presigned_url, upload_file, upload_image_from_url
+from app.utils.cos import upload_image_from_url
 
 router = APIRouter(prefix="/generate", tags=["generate"])
 
@@ -25,26 +23,6 @@ router = APIRouter(prefix="/generate", tags=["generate"])
 # ---------------------------------------------------------------------------
 SENSENOVA_URL = "https://token.sensenova.cn/v1/images/generations"
 AGNES_URL = "https://apihub.agnes-ai.com/v1/images/generations"
-
-
-def _lookup_api_key(provider: Provider, user: User, db: Session) -> str:
-    """Return the decrypted API key for *provider*, or raise 400/404."""
-    row = db.execute(
-        select(ApiKey).where(
-            ApiKey.user_id == user.id, ApiKey.provider == provider
-        )
-    ).scalar_one_or_none()
-    if not row:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"No API key configured for {provider.value}. Please add it in Settings.",
-        )
-    return decrypt(row.encrypted_key, row.iv)
-
-
-# ---------------------------------------------------------------------------
-# POST /api/generate/image
-# ---------------------------------------------------------------------------
 
 
 @router.post("/image", response_model=GenerationResponse)
@@ -69,7 +47,7 @@ async def generate_image(
 
     provider = Provider(body.provider)
     mode = GenerationMode(body.mode)
-    api_key = _lookup_api_key(provider, user, db)
+    api_key = lookup_api_key(provider, user, db)
 
     try:
         if provider == Provider.sensenova:
@@ -83,6 +61,7 @@ async def generate_image(
         record = Generation(
             user_id=user.id,
             provider=provider,
+            type=GenerationType.image,
             mode=mode,
             prompt=body.prompt,
             size=body.size,
@@ -101,6 +80,7 @@ async def generate_image(
     record = Generation(
         user_id=user.id,
         provider=provider,
+        type=GenerationType.image,
         mode=mode,
         prompt=body.prompt,
         size=body.size,
@@ -113,7 +93,7 @@ async def generate_image(
     db.refresh(record)
 
     # Build response with presigned URLs
-    return _build_response(record)
+    return await _build_response(record)
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +113,7 @@ async def _call_sensenova(
             "n": 1,
         }
         if mode == GenerationMode.img2img and body.image_urls:
-            payload["image"] = body.image_url
+            payload["image"] = body.image_urls[0]
 
         resp = await client.post(
             SENSENOVA_URL,
@@ -169,7 +149,7 @@ async def _call_agnes(
             "extra_body": extra_body,
         }
 
-        logger.warning(f"=== AGNES DEBUG === key prefix={api_key[:12]}... key_len={len(api_key)} size={body.size}")
+        logger.debug(f"=== AGNES === size={body.size} mode={mode.value}")
         resp = await client.post(
             AGNES_URL,
             headers={
@@ -178,7 +158,7 @@ async def _call_agnes(
             },
             json=payload,
         )
-        logger.warning(f"=== AGNES DEBUG === upstream_status={resp.status_code} body={resp.text[:600]}")
+        logger.debug(f"=== AGNES === upstream_status={resp.status_code}")
         _raise_on_bad_status(resp)
 
         data = resp.json()

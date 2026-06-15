@@ -96,11 +96,19 @@ export function usePollActiveItems(ids: number[]) {
   return useQuery({
     queryKey: ["generations-poll", ids],
     queryFn: async () => {
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         ids.map((id) =>
           api.get<Generation>(`/generations/${id}`).then((r) => r.data)
         )
       );
+      // Collect only fulfilled results; rejected polls are silently skipped
+      const results = settled
+        .filter(
+          (r): r is PromiseFulfilledResult<Generation> =>
+            r.status === "fulfilled"
+        )
+        .map((r) => r.value);
+
       // Check if any item reached terminal state — trigger one list refresh
       const hasTerminal = results.some(
         (r) => r.status === "completed" || r.status === "failed"
@@ -111,7 +119,14 @@ export function usePollActiveItems(ids: number[]) {
       return results;
     },
     enabled: ids.length > 0,
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data || data.length === 0) return 5000;
+      const allTerminal = data.every(
+        (r) => r.status === "completed" || r.status === "failed"
+      );
+      return allTerminal ? false : 5000;
+    },
   });
 }
 
@@ -119,6 +134,19 @@ export function useDeleteGeneration() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.delete(`/generations/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["generations"] });
+    },
+  });
+}
+
+// ── Batch delete ──────────────────────────────────────────────────────────
+
+export function useBatchDeleteGenerations() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) =>
+      api.post<{ deleted: number; not_found: number }>("/generations/batch-delete", { ids }).then((r) => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["generations"] });
     },

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.utils.cos import get_presigned_url, upload_file
+from app.utils.cos import async_get_presigned_url, async_upload_file
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -35,8 +35,8 @@ async def upload_image(
         )
 
     try:
-        cos_key = upload_file(body, user.id, file.filename or "image.png")
-        url = get_presigned_url(cos_key)
+        cos_key = await async_upload_file(body, user.id, file.filename or "image.png")
+        url = await async_get_presigned_url(cos_key)
         return {"cos_key": cos_key, "url": url}
     except RuntimeError as e:
         raise HTTPException(

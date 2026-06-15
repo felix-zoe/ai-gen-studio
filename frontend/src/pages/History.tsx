@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Image,
@@ -18,11 +18,12 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import { useGenerations, useDeleteGeneration, usePollActiveItems } from "@/hooks/useGeneration";
+import { useGenerations, useDeleteGeneration, useBatchDeleteGenerations, usePollActiveItems } from "@/hooks/useGeneration";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { downloadFile } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -206,12 +207,48 @@ export default function History() {
   const [modeFilter, setModeFilter] = useState<string>("all");
   const [promptCopied, setPromptCopied] = useState(false);
   const [promptExpanded, setPromptExpanded] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
 
   const effectiveStatus = statusFilter === "all" ? undefined : statusFilter;
   const effectiveMode = modeFilter === "all" ? undefined : modeFilter;
 
   const { data, isLoading, isError } = useGenerations(tab, page, 20, searchQuery, effectiveStatus, effectiveMode);
   const deleteMutation = useDeleteGeneration();
+  const batchDeleteMutation = useBatchDeleteGenerations();
+
+  // Clear selection when switching tabs or filters
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [tab, searchQuery, statusFilter, modeFilter]);
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!data) return;
+    if (selectedIds.size === mergedItems.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(mergedItems.map((g) => g.id)));
+    }
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedIds.size === 0) return;
+    batchDeleteMutation.mutate(Array.from(selectedIds), {
+      onSuccess: () => {
+        setSelectedIds(new Set());
+        setShowBatchDeleteConfirm(false);
+      },
+    });
+  };
 
   // Identify active (in-progress/queued) items from the list — poll only these
   const activeIds = useMemo(() => {
@@ -239,6 +276,13 @@ export default function History() {
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 0;
 
+  // Auto-correct page when it exceeds totalPages (e.g. after deleting all items on last page)
+  useEffect(() => {
+    if (totalPages > 0 && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [totalPages, page]);
+
   const handleSearch = () => {
     setSearchQuery(searchInput);
     setPage(1);
@@ -255,6 +299,8 @@ export default function History() {
       size: gen.size,
     });
     if (gen.type === "video") {
+      if (gen.num_frames) params.set("num_frames", String(gen.num_frames));
+      if (gen.frame_rate) params.set("frame_rate", String(gen.frame_rate));
       navigate(`/generate/video?${params.toString()}`);
     } else {
       navigate(`/generate/image?${params.toString()}`);
@@ -382,6 +428,45 @@ export default function History() {
         </Select>
       </div>
 
+      {/* ── Batch Action Bar ──────────────────────────────────────── */}
+      {data && mergedItems.length > 0 && (
+        <div className="flex items-center justify-between rounded-md border bg-muted/30 px-4 py-2">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 text-sm hover:text-foreground transition-colors"
+            >
+              <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${
+                selectedIds.size === mergedItems.length && mergedItems.length > 0
+                  ? "bg-primary border-primary"
+                  : "border-muted-foreground/40"
+              }`}>
+                {selectedIds.size === mergedItems.length && mergedItems.length > 0 && (
+                  <Check className="h-3 w-3 text-primary-foreground" />
+                )}
+              </div>
+              全选
+            </button>
+            {selectedIds.size > 0 && (
+              <span className="text-sm text-muted-foreground">
+                已选 {selectedIds.size} 项
+              </span>
+            )}
+          </div>
+          {selectedIds.size > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setShowBatchDeleteConfirm(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              批量删除
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* ── Loading ───────────────────────────────────────────────── */}
       {isLoading && !data && (
         <div className="flex items-center justify-center py-16">
@@ -414,9 +499,24 @@ export default function History() {
             return (
               <Card
                 key={gen.id}
-                className={`group overflow-hidden cursor-pointer hover:shadow-md transition-shadow ${isFailedOrTimeout ? "border-destructive/40" : ""}`}
+                className={`group overflow-hidden cursor-pointer hover:shadow-md transition-shadow ${
+                  isFailedOrTimeout ? "border-destructive/40" : ""
+                } ${selectedIds.has(gen.id) ? "ring-2 ring-primary" : ""}`}
               >
                 <CardContent className="p-0">
+                  {/* Selection checkbox */}
+                  <div
+                    className={`absolute top-2 left-2 z-10 h-5 w-5 rounded border-2 flex items-center justify-center transition-all ${
+                      selectedIds.has(gen.id)
+                        ? "bg-primary border-primary"
+                        : "border-white/70 bg-black/20 opacity-0 group-hover:opacity-100"
+                    }`}
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(gen.id); }}
+                  >
+                    {selectedIds.has(gen.id) && (
+                      <Check className="h-3 w-3 text-primary-foreground" />
+                    )}
+                  </div>
                   {/* Thumbnail area */}
                   <div
                     className="relative bg-muted overflow-hidden"
@@ -501,20 +601,18 @@ export default function History() {
                         <Eye className="h-3.5 w-3.5" />
                       </Button>
                       {(gen.image_url || gen.video_url) && (
-                        <a
-                          href={gen.video_url || gen.image_url!}
-                          download
-                          onClick={(e) => e.stopPropagation()}
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          className="h-7 w-7 shadow-md"
+                          title="下载"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadFile(gen.video_url || gen.image_url!);
+                          }}
                         >
-                          <Button
-                            variant="secondary"
-                            size="icon"
-                            className="h-7 w-7 shadow-md"
-                            title="下载"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                          </Button>
-                        </a>
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
                       )}
                       <Button
                         variant="secondary"
@@ -565,6 +663,21 @@ export default function History() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[40px]">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${
+                      selectedIds.size === mergedItems.length && mergedItems.length > 0
+                        ? "bg-primary border-primary"
+                        : "border-muted-foreground/40"
+                    }`}
+                  >
+                    {selectedIds.size === mergedItems.length && mergedItems.length > 0 && (
+                      <Check className="h-3 w-3 text-primary-foreground" />
+                    )}
+                  </button>
+                </TableHead>
                 <TableHead className="w-[60px]">#</TableHead>
                 <TableHead className="w-[70px]">预览</TableHead>
                 <TableHead>提示词</TableHead>
@@ -595,6 +708,23 @@ export default function History() {
 
                 return (
                   <TableRow key={gen.id} className={isFailedOrTimeout ? "bg-destructive/5" : ""}>
+                    {/* Selection checkbox */}
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => toggleSelect(gen.id)}
+                        className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${
+                          selectedIds.has(gen.id)
+                            ? "bg-primary border-primary"
+                            : "border-muted-foreground/40"
+                        }`}
+                      >
+                        {selectedIds.has(gen.id) && (
+                          <Check className="h-3 w-3 text-primary-foreground" />
+                        )}
+                      </button>
+                    </TableCell>
+
                     {/* ID */}
                     <TableCell className="font-mono text-xs">
                       #{gen.id}
@@ -685,19 +815,15 @@ export default function History() {
                         </Button>
 
                         {(gen.image_url || gen.video_url) && (
-                          <a
-                            href={gen.video_url || gen.image_url!}
-                            download
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="下载"
+                            onClick={() => downloadFile(gen.video_url || gen.image_url!)}
                           >
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              title="下载"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          </a>
+                            <Download className="h-4 w-4" />
+                          </Button>
                         )}
 
                         <Button
@@ -938,15 +1064,15 @@ export default function History() {
                 {/* Actions */}
                 <div className="flex flex-col gap-2 pt-2 border-t">
                   {(preview.image_url || preview.video_url) && (
-                    <a
-                      href={preview.video_url || preview.image_url!}
-                      download
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => downloadFile(preview.video_url || preview.image_url!)}
                     >
-                      <Button variant="outline" size="sm" className="w-full">
-                        <Download className="h-4 w-4 mr-2" />
-                        下载
-                      </Button>
-                    </a>
+                      <Download className="h-4 w-4 mr-2" />
+                      下载
+                    </Button>
                   )}
                   <Button size="sm" onClick={() => handleRegenerate(preview)} className="w-full">
                     <Wand2 className="h-4 w-4 mr-2" />
@@ -1017,6 +1143,46 @@ export default function History() {
             </div>
           </DialogContent>
         )}
+      </Dialog>
+
+      {/* ── Batch Delete Confirmation Dialog ──────────────────────── */}
+      <Dialog
+        open={showBatchDeleteConfirm}
+        onOpenChange={setShowBatchDeleteConfirm}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>批量删除确认</DialogTitle>
+          </DialogHeader>
+          <DialogDescription>
+            <p>确定要删除选中的 <span className="font-medium text-foreground">{selectedIds.size}</span> 条记录吗？此操作不可撤销。</p>
+          </DialogDescription>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowBatchDeleteConfirm(false)}
+              disabled={batchDeleteMutation.isPending}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleBatchDelete}
+              disabled={batchDeleteMutation.isPending}
+            >
+              {batchDeleteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                `删除 ${selectedIds.size} 项`
+              )}
+            </Button>
+          </div>
+        </DialogContent>
       </Dialog>
     </div>
   );

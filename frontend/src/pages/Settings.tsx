@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Check, X, Eye, EyeOff } from "lucide-react";
+import { Loader2, Check, X, Eye, EyeOff, AlertTriangle, Trash2 } from "lucide-react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +12,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { KeysStatusResponse } from "@/types/generation";
+import type { KeyTestResponse, KeysStatusResponse } from "@/types/generation";
 
 const PROVIDER_LABELS: Record<string, string> = {
   sensenova: "SenseNova (商汤)",
@@ -25,6 +32,8 @@ export default function Settings() {
   const [editing, setEditing] = useState<string | null>(null);
   const [keyValue, setKeyValue] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   // Fetch keys
   const { data, isLoading } = useQuery({
@@ -41,6 +50,10 @@ export default function Settings() {
       queryClient.invalidateQueries({ queryKey: ["keys"] });
       setEditing(null);
       setKeyValue("");
+      setError(null);
+    },
+    onError: (err: Error) => {
+      setError(`保存失败：${err.message}`);
     },
   });
 
@@ -49,19 +62,29 @@ export default function Settings() {
     mutationFn: (provider: string) => api.delete(`/keys/${provider}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keys"] });
+      setDeleteTarget(null);
+      setError(null);
+    },
+    onError: (err: Error) => {
+      setError(`删除失败：${err.message}`);
+      setDeleteTarget(null);
     },
   });
 
   // Test key
   const testMutation = useMutation({
     mutationFn: (provider: string) =>
-      api.post(`/keys/${provider}/test`).then((r) => r.data),
+      api.post<KeyTestResponse>(`/keys/${provider}/test`).then((r) => r.data),
+    onError: (err: Error) => {
+      setError(`测试失败：${err.message}`);
+    },
   });
 
   const handleStartEdit = (provider: string) => {
     setEditing(provider);
     setKeyValue("");
     setShowKey(false);
+    setError(null);
   };
 
   const handleSave = (provider: string) => {
@@ -69,10 +92,9 @@ export default function Settings() {
     saveMutation.mutate({ provider, key: keyValue.trim() });
   };
 
-  const handleDelete = (provider: string) => {
-    if (window.confirm(`确定删除 ${PROVIDER_LABELS[provider]} 的 API Key 吗？`)) {
-      deleteMutation.mutate(provider);
-    }
+  const handleDelete = () => {
+    if (!deleteTarget) return;
+    deleteMutation.mutate(deleteTarget);
   };
 
   return (
@@ -91,6 +113,16 @@ export default function Settings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Error banner */}
+          {error && (
+            <div className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="flex-1">{error}</span>
+              <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setError(null)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
           {isLoading ? (
             <div className="flex justify-center py-4">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -186,9 +218,9 @@ export default function Settings() {
                         variant="outline"
                         size="sm"
                         onClick={() => testMutation.mutate(keyStatus.provider)}
-                        disabled={testMutation.isPending}
+                        disabled={testMutation.isPending && testMutation.variables === keyStatus.provider}
                       >
-                        {testMutation.isPending ? (
+                        {testMutation.isPending && testMutation.variables === keyStatus.provider ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : null}
                         测试
@@ -196,7 +228,7 @@ export default function Settings() {
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => handleDelete(keyStatus.provider)}
+                        onClick={() => setDeleteTarget(keyStatus.provider)}
                       >
                         删除
                       </Button>
@@ -222,6 +254,45 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Delete Confirmation Dialog ─────────────────────────────── */}
+      <Dialog open={deleteTarget !== null} onOpenChange={() => setDeleteTarget(null)}>
+        {deleteTarget && (
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>确认删除</DialogTitle>
+            </DialogHeader>
+            <DialogDescription>
+              <p>确定要删除 <span className="font-medium text-foreground">{PROVIDER_LABELS[deleteTarget] || deleteTarget}</span> 的 API Key 吗？此操作不可撤销。</p>
+            </DialogDescription>
+            <div className="flex justify-end gap-2 mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteMutation.isPending}
+              >
+                取消
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    删除中...
+                  </>
+                ) : (
+                  "确认删除"
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 }

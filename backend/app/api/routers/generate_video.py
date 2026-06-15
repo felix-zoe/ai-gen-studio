@@ -7,21 +7,17 @@ logger = logging.getLogger("uvicorn")
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
-from app.core.crypto import decrypt
+from app.api.deps import get_current_user, lookup_api_key
 from app.db.session import get_db
-from app.models.api_key import ApiKey, Provider
+from app.models.api_key import Provider
 from app.models.generation import Generation, GenerationMode, GenerationStatus, GenerationType
 from app.models.user import User
 from app.schemas.generation import (
     GenerateVideoRequest,
-    GenerationResponse,
     VideoCreateResponse,
 )
-from app.utils.cos import get_presigned_url, upload_video_from_url
 
 router = APIRouter(prefix="/generate", tags=["generate"])
 
@@ -31,20 +27,6 @@ AGNES_VIDEO_URL = "https://apihub.agnes-ai.com/v1/videos"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _lookup_agnes_key(user: User, db: Session) -> str:
-    """Return the decrypted Agnes API key, or raise 400."""
-    row = db.execute(
-        select(ApiKey).where(
-            ApiKey.user_id == user.id, ApiKey.provider == Provider.agnes
-        )
-    ).scalar_one_or_none()
-    if not row:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No Agnes API key configured. Please add it in Settings.",
-        )
-    return decrypt(row.encrypted_key, row.iv)
 
 
 def _validate_num_frames(num_frames: int) -> None:
@@ -80,11 +62,29 @@ async def generate_video(
 
     _validate_num_frames(body.num_frames)
 
-    api_key = _lookup_agnes_key(user, db)
+    api_key = lookup_api_key(Provider.agnes, user, db)
 
     try:
         upstream_video_id = await _create_agnes_video_task(api_key, body)
-    except HTTPException:
+    except HTTPException as exc:
+        # Create a failed record so the user can see the error in history
+        record = Generation(
+            user_id=user.id,
+            provider=Provider.agnes,
+            type=GenerationType.video,
+            mode=GenerationMode(body.mode),
+            prompt=body.prompt,
+            size=f"{body.width}x{body.height}",
+            input_images=json.dumps(body.image_cos_keys) if body.image_cos_keys else None,
+            status=GenerationStatus.failed,
+            error=exc.detail if isinstance(exc.detail, str) else str(exc.detail),
+            width=body.width,
+            height=body.height,
+            num_frames=body.num_frames,
+            frame_rate=body.frame_rate,
+        )
+        db.add(record)
+        db.commit()
         raise
     except httpx.TimeoutException as exc:
         logger.error(f"Agnes video task creation timed out: {type(exc).__name__}: {exc}")
@@ -176,7 +176,7 @@ async def _create_agnes_video_task(api_key: str, body: GenerateVideoRequest) -> 
         payload.setdefault("extra_body", {})["mode"] = "keyframes"
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)) as client:
-        logger.warning(f"=== VIDEO DEBUG === mode={body.mode} payload={payload}")
+        logger.debug(f"=== VIDEO === mode={body.mode}")
         resp = await client.post(
             AGNES_VIDEO_URL,
             headers={
@@ -185,7 +185,7 @@ async def _create_agnes_video_task(api_key: str, body: GenerateVideoRequest) -> 
             },
             json=payload,
         )
-        logger.warning(f"=== VIDEO DEBUG === upstream_status={resp.status_code} body={resp.text[:600]}")
+        logger.debug(f"=== VIDEO === upstream_status={resp.status_code}")
 
     if resp.status_code != 200:
         detail = f"Agnes video API error (HTTP {resp.status_code}): {resp.text[:300]}"

@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import AppLayout from "@/components/layout/AppLayout";
 import Login from "@/pages/Login";
@@ -8,16 +9,24 @@ import VideoGeneration from "@/pages/VideoGeneration";
 import History from "@/pages/History";
 import Settings from "@/pages/Settings";
 
+function AuthLoading() {
+  return (
+    <div className="flex h-screen items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <AuthLoading />;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
 function GuestRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <AuthLoading />;
   if (user) return <Navigate to="/generate/image" replace />;
   return <>{children}</>;
 }

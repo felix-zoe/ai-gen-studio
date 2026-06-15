@@ -249,11 +249,15 @@ export default function ImageGeneration() {
 
             {/* Prompt */}
             <div className="space-y-2">
-              <Label>提示词</Label>
+              <div className="flex justify-between">
+                <Label>提示词</Label>
+                <span className="text-xs text-muted-foreground">{prompt.length}/4000</span>
+              </div>
               <Textarea
                 placeholder="描述你想要的图片..."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                maxLength={4000}
                 rows={4}
               />
             </div>

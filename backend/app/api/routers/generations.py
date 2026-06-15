@@ -1,64 +1,60 @@
 """Generations history — list past generations & poll video status with presigned URLs."""
 
 import json
+import logging
+from datetime import datetime, timedelta, timezone
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
-from app.core.crypto import decrypt
+from app.api.deps import get_current_user, lookup_api_key
 from app.db.session import get_db
-from app.models.api_key import ApiKey, Provider
+from app.models.api_key import Provider
 from app.models.generation import Generation, GenerationMode, GenerationStatus, GenerationType
 from app.models.user import User
 from app.schemas.generation import GenerationListResponse, GenerationResponse, BatchDeleteRequest
-from app.utils.cos import get_presigned_url, upload_video_from_url, delete_object
+from app.utils.cos import async_get_presigned_url, upload_video_from_url, async_delete_object
+
+logger = logging.getLogger("uvicorn")
 
 router = APIRouter(prefix="/generations", tags=["generations"])
 
 AGNES_VIDEO_STATUS_URL = "https://apihub.agnes-ai.com/v1/videos"
+
+# Video tasks that haven't reached a terminal state within this window are
+# considered stuck (upstream may have silently dropped the task).
+_VIDEO_STALE_THRESHOLD = timedelta(hours=2)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _lookup_agnes_key(user: User, db: Session) -> str:
-    """Return the decrypted Agnes API key, or raise 404."""
-    row = db.execute(
-        select(ApiKey).where(
-            ApiKey.user_id == user.id, ApiKey.provider == Provider.agnes
-        )
-    ).scalar_one_or_none()
-    if not row:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No Agnes API key configured.",
-        )
-    return decrypt(row.encrypted_key, row.iv)
 
-
-def _build_response(row: Generation) -> GenerationResponse:
+async def _build_response(row: Generation) -> GenerationResponse:
     """Build a GenerationResponse with presigned URLs from a DB row."""
     item = GenerationResponse.model_validate(row)
     if row.type == GenerationType.video:
-        item.video_url = get_presigned_url(row.video_cos_key)
+        item.video_url = await async_get_presigned_url(row.video_cos_key)
     else:
-        item.image_url = get_presigned_url(row.cos_key)
+        item.image_url = await async_get_presigned_url(row.cos_key)
 
     # Generate presigned URLs for reference/input images
     if row.input_images:
         try:
             cos_keys = json.loads(row.input_images)
-            item.input_images = [get_presigned_url(k) for k in cos_keys if k]
+            item.input_images = [
+                await async_get_presigned_url(k) for k in cos_keys if k
+            ]
         except (json.JSONDecodeError, TypeError):
             item.input_images = None
 
     return item
 
 
-def _cleanup_cos(row: Generation) -> None:
+async def _cleanup_cos(row: Generation) -> None:
     """Delete all COS objects associated with a generation record (best-effort)."""
     keys_to_delete = []
     if row.cos_key:
@@ -73,7 +69,7 @@ def _cleanup_cos(row: Generation) -> None:
             pass
 
     for key in keys_to_delete:
-        delete_object(key)
+        await async_delete_object(key)
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +78,7 @@ def _cleanup_cos(row: Generation) -> None:
 
 
 @router.get("", response_model=GenerationListResponse)
-def list_generations(
+async def list_generations(
     type_: str = Query("image", alias="type", description="Filter by type (image or video)"),
     search: str = Query(None, description="Search by prompt keyword"),
     status: str = Query(None, description="Filter by status (queued, in_progress, completed, failed)"),
@@ -94,12 +90,11 @@ def list_generations(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from datetime import datetime as dt, timezone
-
     conditions = [Generation.user_id == user.id, Generation.type == type_]
 
     if search:
-        conditions.append(Generation.prompt.ilike(f"%{search}%"))
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append(Generation.prompt.ilike(f"%{escaped}%", escape="\\"))
     if status:
         try:
             conditions.append(Generation.status == GenerationStatus(status))
@@ -112,13 +107,13 @@ def list_generations(
             pass  # ignore invalid mode values
     if date_from:
         try:
-            df = dt.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+            df = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
             conditions.append(Generation.created_at >= df)
         except ValueError:
             pass
     if date_to:
         try:
-            dto = dt.fromisoformat(date_to).replace(tzinfo=timezone.utc)
+            dto = datetime.fromisoformat(date_to).replace(tzinfo=timezone.utc)
             # Include the end of the day
             dto = dto.replace(hour=23, minute=59, second=59)
             conditions.append(Generation.created_at <= dto)
@@ -141,7 +136,7 @@ def list_generations(
         .all()
     )
 
-    items = [_build_response(row) for row in rows]
+    items = [await _build_response(row) for row in rows]
 
     return GenerationListResponse(
         items=items,
@@ -157,7 +152,7 @@ def list_generations(
 
 
 @router.delete("/{generation_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_generation(
+async def delete_generation(
     generation_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -165,7 +160,7 @@ def delete_generation(
     row = db.get(Generation, generation_id)
     if not row or row.user_id != user.id:
         raise HTTPException(status_code=404, detail="Generation not found")
-    _cleanup_cos(row)
+    await _cleanup_cos(row)
     db.delete(row)
     db.commit()
 
@@ -176,7 +171,7 @@ def delete_generation(
 
 
 @router.post("/batch-delete", status_code=status.HTTP_200_OK)
-def batch_delete_generations(
+async def batch_delete_generations(
     body: BatchDeleteRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -188,7 +183,7 @@ def batch_delete_generations(
         if not row or row.user_id != user.id:
             not_found += 1
             continue
-        _cleanup_cos(row)
+        await _cleanup_cos(row)
         db.delete(row)
         deleted += 1
     db.commit()
@@ -217,7 +212,7 @@ async def get_generation(
         and row.upstream_video_id
     ):
         try:
-            api_key = _lookup_agnes_key(user, db)
+            api_key = lookup_api_key(Provider.agnes, user, db)
             await _poll_video_status(row, api_key, db)
         except HTTPException:
             raise
@@ -225,13 +220,28 @@ async def get_generation(
             # Silently swallow poll errors — return current DB state
             pass
 
-    return _build_response(row)
+    return await _build_response(row)
 
 
 async def _poll_video_status(
     row: Generation, api_key: str, db: Session
 ) -> None:
     """Poll Agnes for the latest video task status and update the DB record."""
+
+    # ── Stale detection ──────────────────────────────────────────────────
+    # If the task has been queued/in_progress for more than the threshold,
+    # the upstream task is likely gone — mark as failed to avoid infinite polling.
+    if row.created_at:
+        created = row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - created > _VIDEO_STALE_THRESHOLD:
+            row.status = GenerationStatus.failed
+            row.error = "Task timed out after 2 hours"
+            db.commit()
+            db.refresh(row)
+            return
+
     poll_url = f"{AGNES_VIDEO_STATUS_URL}/{row.upstream_video_id}"
     async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)) as client:
         resp = await client.get(
@@ -251,17 +261,25 @@ async def _poll_video_status(
         row.progress = int(progress)
 
     if upstream_status == "completed":
-        # Agnes returns video_url in the completed response; fall back to remixed_from_video_id
-        video_url = data.get("video_url") or data.get("remixed_from_video_id")
-        if video_url:
+        # Guard against concurrent polls: re-read row to check if another
+        # poll already downloaded and stored the video.
+        db.refresh(row)
+        if row.video_cos_key:
+            return  # Already processed by another poll
+
+        video_url = data.get("video_url")
+        if not video_url:
+            row.status = GenerationStatus.failed
+            row.error = "Upstream returned no video URL"
+        else:
             try:
                 video_cos_key = await upload_video_from_url(video_url, row.user_id)
                 row.video_cos_key = video_cos_key
-            except Exception:
-                # If download/upload fails, keep the upstream URL as fallback
-                row.error = "Video download to storage failed"
-        row.status = GenerationStatus.completed
-        row.progress = 100
+                row.status = GenerationStatus.completed
+                row.progress = 100
+            except Exception as exc:
+                row.status = GenerationStatus.failed
+                row.error = f"Video download to storage failed: {exc}"
     elif upstream_status == "failed":
         row.status = GenerationStatus.failed
         error_obj = data.get("error")

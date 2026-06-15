@@ -1,9 +1,12 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.crypto import decrypt
 from app.core.security import decode_access_token
 from app.db.session import get_db
+from app.models.api_key import ApiKey, Provider
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -38,3 +41,18 @@ def get_current_user(
         )
 
     return user
+
+
+def lookup_api_key(provider: Provider, user: User, db: Session) -> str:
+    """Return the decrypted API key for *provider*, or raise 400."""
+    row = db.execute(
+        select(ApiKey).where(
+            ApiKey.user_id == user.id, ApiKey.provider == provider
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No API key configured for {provider.value}. Please add it in Settings.",
+        )
+    return decrypt(row.encrypted_key, row.iv)

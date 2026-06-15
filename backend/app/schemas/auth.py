@@ -1,14 +1,14 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Request ───────────────────────────────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
+    email: EmailStr
+    password: str = Field(..., min_length=6, max_length=128)
 
 
 # ── Response ──────────────────────────────────────────────────────────────────

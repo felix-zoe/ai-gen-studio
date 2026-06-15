@@ -1,16 +1,21 @@
 """Tencent Cloud COS utilities — upload & presigned URL."""
 
+import asyncio
 import mimetypes
+import uuid
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Optional
 
+import httpx
 from qcloud_cos import CosConfig, CosS3Client
 
 from app.core.config import settings
 
 
+@lru_cache(maxsize=1)
 def _get_client() -> CosS3Client:
-    """Create a COS client from settings."""
+    """Create a COS client from settings (cached singleton)."""
     config = CosConfig(
         Region=settings.COS_REGION,
         SecretId=settings.COS_SECRET_ID,
@@ -30,6 +35,11 @@ def _check_configured() -> None:
         raise RuntimeError(
             f"COS not configured: {', '.join(missing)} missing from .env"
         )
+
+
+# ---------------------------------------------------------------------------
+# Synchronous primitives
+# ---------------------------------------------------------------------------
 
 
 def upload_file(file_bytes: bytes, user_id: int, filename: str) -> str:
@@ -55,7 +65,6 @@ def upload_file(file_bytes: bytes, user_id: int, filename: str) -> str:
         content_type = f"image/{ext}" if ext in image_exts else f"video/{ext}"
 
     date_prefix = datetime.now(timezone.utc).strftime("%Y%m%d")
-    import uuid
 
     key = f"aigenstudio/uploads/{user_id}/{date_prefix}/{uuid.uuid4().hex}.{ext}"
 
@@ -89,39 +98,6 @@ def get_presigned_url(cos_key: str, expires_in: int = 3600) -> Optional[str]:
         return None
 
 
-async def upload_image_from_url(image_url: str, user_id: int) -> str:
-    """
-    Download an image from *image_url* and upload it to COS.
-
-    Returns the COS key.
-    """
-    import httpx
-
-    async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-        resp = await client.get(image_url)
-    resp.raise_for_status()
-
-    # Try to extract filename from URL
-    filename = image_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
-    return upload_file(resp.content, user_id, filename)
-
-
-async def upload_video_from_url(video_url: str, user_id: int) -> str:
-    """
-    Download a video from *video_url* and upload it to COS.
-
-    Returns the COS key.
-    """
-    import httpx
-
-    async with httpx.AsyncClient(follow_redirects=True, timeout=300) as client:
-        resp = await client.get(video_url)
-    resp.raise_for_status()
-
-    filename = video_url.rsplit("/", 1)[-1].split("?")[0] or "video.mp4"
-    return upload_file(resp.content, user_id, filename)
-
-
 def delete_object(cos_key: str) -> bool:
     """
     Delete a COS object by its key.
@@ -141,3 +117,61 @@ def delete_object(cos_key: str) -> bool:
     except Exception:
         # Silently swallow — COS cleanup is best-effort
         return False
+
+
+# ---------------------------------------------------------------------------
+# Async wrappers — run blocking COS SDK calls in a thread executor
+# ---------------------------------------------------------------------------
+
+
+async def async_upload_file(file_bytes: bytes, user_id: int, filename: str) -> str:
+    """Async wrapper around :func:`upload_file` (runs in thread executor)."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, upload_file, file_bytes, user_id, filename)
+
+
+async def async_get_presigned_url(cos_key: str, expires_in: int = 3600) -> Optional[str]:
+    """Async wrapper around :func:`get_presigned_url` (runs in thread executor)."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_presigned_url, cos_key, expires_in)
+
+
+async def async_delete_object(cos_key: str) -> bool:
+    """Async wrapper around :func:`delete_object` (runs in thread executor)."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, delete_object, cos_key)
+
+
+# ---------------------------------------------------------------------------
+# Download-then-upload helpers
+# ---------------------------------------------------------------------------
+
+
+async def upload_image_from_url(image_url: str, user_id: int) -> str:
+    """
+    Download an image from *image_url* and upload it to COS.
+
+    Returns the COS key.
+    """
+    async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+        resp = await client.get(image_url)
+        resp.raise_for_status()
+        content = resp.content
+
+    filename = image_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
+    return await async_upload_file(content, user_id, filename)
+
+
+async def upload_video_from_url(video_url: str, user_id: int) -> str:
+    """
+    Download a video from *video_url* and upload it to COS.
+
+    Returns the COS key.
+    """
+    async with httpx.AsyncClient(follow_redirects=True, timeout=300) as client:
+        resp = await client.get(video_url)
+        resp.raise_for_status()
+        content = resp.content
+
+    filename = video_url.rsplit("/", 1)[-1].split("?")[0] or "video.mp4"
+    return await async_upload_file(content, user_id, filename)

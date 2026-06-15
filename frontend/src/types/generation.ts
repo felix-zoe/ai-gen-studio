@@ -72,3 +72,8 @@ export interface KeyStatus {
 export interface KeysStatusResponse {
   keys: KeyStatus[];
 }
+
+export interface KeyTestResponse {
+  ok: boolean;
+  message: string;
+}
