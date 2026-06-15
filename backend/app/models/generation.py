@@ -70,6 +70,9 @@ class Generation(Base):
     num_frames: Mapped[int | None] = mapped_column(Integer, nullable=True)
     frame_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Reference (input) images — COS keys stored as JSON array
+    input_images: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[GenerationStatus] = mapped_column(
         Enum(GenerationStatus), nullable=False, default=GenerationStatus.completed

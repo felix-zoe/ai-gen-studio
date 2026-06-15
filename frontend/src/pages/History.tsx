@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Image,
   Video,
@@ -7,11 +8,26 @@ import {
   Eye,
   Trash2,
   Loader2,
+  LayoutGrid,
+  List,
+  Film,
+  ImageIcon,
+  Search,
+  Wand2,
+  AlertTriangle,
 } from "lucide-react";
-import { useGenerations, useDeleteGeneration } from "@/hooks/useGeneration";
+import { useGenerations, useDeleteGeneration, usePollActiveItems } from "@/hooks/useGeneration";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -32,15 +48,23 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import {
+  Card,
+  CardContent,
+} from "@/components/ui/card";
 import type { Generation } from "@/types/generation";
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────────────────────
+
+const STALE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — treat queued/in_progress as "timed out" after this
 
 const MODE_LABELS: Record<string, string> = {
   text2img: "文生图",
   img2img: "图生图",
   text2vid: "文生视频",
   img2vid: "图生视频",
+  multimg: "多图生视频",
+  keyframes: "关键帧",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -48,7 +72,25 @@ const STATUS_LABELS: Record<string, string> = {
   in_progress: "生成中",
   completed: "已完成",
   failed: "失败",
+  timed_out: "超时",
 };
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Determine the effective display status — treats long-running queued/in_progress as timed_out */
+type EffectiveStatus = "completed" | "failed" | "queued" | "in_progress" | "timed_out";
+
+function getEffectiveStatus(gen: Generation): EffectiveStatus {
+  if (gen.status === "completed") return "completed";
+  if (gen.status === "failed") return "failed";
+
+  // Check if queued/in_progress has been running too long
+  const createdAt = new Date(gen.created_at).getTime();
+  const now = Date.now();
+  if (now - createdAt > STALE_TIMEOUT_MS) return "timed_out";
+
+  return gen.status as EffectiveStatus;
+}
 
 function getModelName(gen: Generation): string {
   if (gen.type === "video") return "agnes-video-v2.0";
@@ -72,33 +114,148 @@ function formatDateTime(dateStr: string): string {
   });
 }
 
+function formatRelativeTime(dateStr: string): string {
+  const now = new Date();
+  const d = new Date(dateStr);
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHour = Math.floor(diffMs / 3600000);
+
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin}分钟前`;
+  if (diffHour < 24) return `${diffHour}小时前`;
+  return formatDateTime(dateStr);
+}
+
 function truncatePrompt(text: string, max = 60): string {
   if (text.length <= max) return text;
   return text.slice(0, max) + "...";
 }
 
-function StatusBadge({ status }: { status: string }) {
+// ── Status Badge ─────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: EffectiveStatus }) {
   const variant =
     status === "completed"
       ? "default"
-      : status === "failed"
+      : status === "failed" || status === "timed_out"
         ? "destructive"
         : "secondary";
   return <Badge variant={variant}>{STATUS_LABELS[status] || status}</Badge>;
 }
 
+// ── Thumbnail for table/grid ─────────────────────────────────────────────
+
+function GenerationThumbnail({ gen, size = 60 }: { gen: Generation; size?: number }) {
+  const effective = getEffectiveStatus(gen);
+
+  if (effective === "completed" && gen.type === "video" && gen.video_url) {
+    return (
+      <div className="relative" style={{ width: size, height: size }}>
+        <video
+          src={gen.video_url}
+          muted
+          className="h-full w-full rounded-md object-cover"
+          style={{ pointerEvents: "none" }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Film className="h-4 w-4 text-white drop-shadow-md" />
+        </div>
+      </div>
+    );
+  }
+  if (effective === "completed" && gen.type === "image" && gen.image_url) {
+    return (
+      <img
+        src={gen.image_url}
+        alt={gen.prompt}
+        className="rounded-md object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  // Placeholder for no preview / in-progress / failed / timed-out
+  return (
+    <div
+      className="flex items-center justify-center rounded-md bg-muted"
+      style={{ width: size, height: size }}
+    >
+      {gen.type === "video" ? (
+        <Film className="h-5 w-5 text-muted-foreground" />
+      ) : (
+        <ImageIcon className="h-5 w-5 text-muted-foreground" />
+      )}
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export default function History() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState("image");
   const [page, setPage] = useState(1);
+  const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
   const [preview, setPreview] = useState<Generation | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Generation | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [modeFilter, setModeFilter] = useState<string>("all");
 
-  const { data, isLoading, isError } = useGenerations(tab, page);
+  const effectiveStatus = statusFilter === "all" ? undefined : statusFilter;
+  const effectiveMode = modeFilter === "all" ? undefined : modeFilter;
+
+  const { data, isLoading, isError } = useGenerations(tab, page, 20, searchQuery, effectiveStatus, effectiveMode);
   const deleteMutation = useDeleteGeneration();
 
+  // Identify active (in-progress/queued) items from the list — poll only these
+  const activeIds = useMemo(() => {
+    if (!data) return [];
+    return data.items
+      .filter((g) => g.status === "queued" || g.status === "in_progress")
+      .map((g) => g.id);
+  }, [data]);
+
+  const pollResults = usePollActiveItems(activeIds);
+
+  // Merge: replace list items with fresh poll data where available
+  const mergedItems = useMemo(() => {
+    if (!data) return [];
+    if (!pollResults.data || pollResults.data.length === 0) return data.items;
+
+    // Build a map from poll results for quick lookup
+    const pollMap = new Map<number, Generation>();
+    for (const p of pollResults.data) {
+      pollMap.set(p.id, p);
+    }
+
+    return data.items.map((item) => pollMap.get(item.id) || item);
+  }, [data, pollResults.data]);
+
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 0;
+
+  const handleSearch = () => {
+    setSearchQuery(searchInput);
+    setPage(1);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleSearch();
+  };
+
+  const handleRegenerate = (gen: Generation) => {
+    const params = new URLSearchParams({
+      prompt: gen.prompt,
+      mode: gen.mode,
+      size: gen.size,
+    });
+    if (gen.type === "video") {
+      navigate(`/generate/video?${params.toString()}`);
+    } else {
+      navigate(`/generate/image?${params.toString()}`);
+    }
+  };
 
   const handleDelete = () => {
     if (!deleteTarget) return;
@@ -116,48 +273,296 @@ export default function History() {
         </p>
       </div>
 
-      {/* ── Tabs ──────────────────────────────────────────────────── */}
-      <Tabs value={tab} onValueChange={(v) => { setTab(v); setPage(1); }}>
-        <TabsList>
-          <TabsTrigger value="image" className="flex items-center gap-2">
-            <Image className="h-4 w-4" />
-            图片
-          </TabsTrigger>
-          <TabsTrigger value="video" className="flex items-center gap-2">
-            <Video className="h-4 w-4" />
-            视频
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* ── Tabs + View Toggle ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-4">
+        <Tabs value={tab} onValueChange={(v) => { setTab(v); setPage(1); setSearchInput(""); setSearchQuery(""); setStatusFilter("all"); setModeFilter("all"); }}>
+          <TabsList>
+            <TabsTrigger value="image" className="flex items-center gap-2">
+              <Image className="h-4 w-4" />
+              图片
+            </TabsTrigger>
+            <TabsTrigger value="video" className="flex items-center gap-2">
+              <Video className="h-4 w-4" />
+              视频
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {/* View mode toggle */}
+        <div className="flex items-center gap-1 rounded-md border p-1">
+          <Button
+            variant={viewMode === "grid" ? "secondary" : "ghost"}
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => setViewMode("grid")}
+            title="网格视图"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={viewMode === "table" ? "secondary" : "ghost"}
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => setViewMode("table")}
+            title="列表视图"
+          >
+            <List className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Search + Filters ────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Search */}
+        <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-[400px]">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="搜索提示词..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              className="pl-8 h-9"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={handleSearch} className="h-9">
+            搜索
+          </Button>
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setSearchInput(""); setSearchQuery(""); setPage(1); }}
+              className="h-9 text-muted-foreground"
+            >
+              清除
+            </Button>
+          )}
+        </div>
+
+        {/* Status filter */}
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-[130px] h-9">
+            <SelectValue placeholder="状态筛选" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部状态</SelectItem>
+            <SelectItem value="completed">已完成</SelectItem>
+            <SelectItem value="in_progress">生成中</SelectItem>
+            <SelectItem value="queued">排队中</SelectItem>
+            <SelectItem value="failed">失败</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Mode filter */}
+        <Select value={modeFilter} onValueChange={(v) => { setModeFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-[130px] h-9">
+            <SelectValue placeholder="模式筛选" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部模式</SelectItem>
+            {tab === "image" ? (
+              <>
+                <SelectItem value="text2img">文生图</SelectItem>
+                <SelectItem value="img2img">图生图</SelectItem>
+              </>
+            ) : (
+              <>
+                <SelectItem value="text2vid">文生视频</SelectItem>
+                <SelectItem value="img2vid">图生视频</SelectItem>
+                <SelectItem value="multimg">多图生视频</SelectItem>
+                <SelectItem value="keyframes">关键帧</SelectItem>
+              </>
+            )}
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* ── Loading ───────────────────────────────────────────────── */}
-      {isLoading && (
+      {isLoading && !data && (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       )}
 
       {/* ── Error ─────────────────────────────────────────────────── */}
-      {isError && (
+      {isError && !data && (
         <div className="rounded-md bg-destructive/10 p-4 text-center text-sm text-destructive">
           加载失败，请稍后重试
         </div>
       )}
 
       {/* ── Empty ─────────────────────────────────────────────────── */}
-      {data && data.items.length === 0 && (
+      {data && mergedItems.length === 0 && (
         <div className="py-16 text-center text-muted-foreground">
           <p>暂无 {tab === "image" ? "图片" : "视频"} 记录</p>
         </div>
       )}
 
-      {/* ── Table ─────────────────────────────────────────────────── */}
-      {data && data.items.length > 0 && (
+      {/* ── Grid View ─────────────────────────────────────────────────── */}
+      {data && mergedItems.length > 0 && viewMode === "grid" && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {mergedItems.map((gen) => {
+            const effective = getEffectiveStatus(gen);
+            const isFailedOrTimeout = effective === "failed" || effective === "timed_out";
+            const isProcessing = effective === "queued" || effective === "in_progress";
+
+            return (
+              <Card
+                key={gen.id}
+                className={`group overflow-hidden cursor-pointer hover:shadow-md transition-shadow ${isFailedOrTimeout ? "border-destructive/40" : ""}`}
+              >
+                <CardContent className="p-0">
+                  {/* Thumbnail area */}
+                  <div
+                    className="relative bg-muted overflow-hidden"
+                    style={{ aspectRatio: "1" }}
+                    onClick={() => setPreview(gen)}
+                  >
+                    {/* Completed: show media */}
+                    {effective === "completed" ? (
+                      gen.type === "video" && gen.video_url ? (
+                        <video
+                          src={gen.video_url}
+                          muted
+                          className="h-full w-full object-cover"
+                          style={{ pointerEvents: "none" }}
+                        />
+                      ) : gen.type === "image" && gen.image_url ? (
+                        <img
+                          src={gen.image_url}
+                          alt={gen.prompt}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full">
+                          {gen.type === "video" ? <Film className="h-8 w-8 text-muted-foreground" /> : <ImageIcon className="h-8 w-8 text-muted-foreground" />}
+                        </div>
+                      )
+                    ) : isProcessing ? (
+                      /* Processing: subtle spinner */
+                      <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto" />
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {STATUS_LABELS[effective]}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Failed or timed-out: error icon */
+                      <div className="flex items-center justify-center h-full bg-destructive/5">
+                        <div className="text-center">
+                          {effective === "timed_out" ? (
+                            <AlertTriangle className="h-8 w-8 text-destructive/60 mx-auto" />
+                          ) : (
+                            <ImageIcon className="h-8 w-8 text-destructive/40 mx-auto" />
+                          )}
+                          <p className="text-xs text-destructive/70 mt-1">
+                            {STATUS_LABELS[effective]}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Progress overlay for processing */}
+                    {isProcessing && gen.progress != null && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-2 py-1.5">
+                        <div className="flex items-center justify-between text-xs text-white">
+                          <span>{STATUS_LABELS[effective]}</span>
+                          <span>{gen.progress}%</span>
+                        </div>
+                        <Progress value={gen.progress} className="h-1.5 mt-1" />
+                      </div>
+                    )}
+
+                    {/* Hover actions overlay */}
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="h-7 w-7 shadow-md"
+                        title="重新生成"
+                        onClick={(e) => { e.stopPropagation(); handleRegenerate(gen); }}
+                      >
+                        <Wand2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="h-7 w-7 shadow-md"
+                        title="预览"
+                        onClick={(e) => { e.stopPropagation(); setPreview(gen); }}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                      {(gen.image_url || gen.video_url) && (
+                        <a
+                          href={gen.video_url || gen.image_url!}
+                          download
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            className="h-7 w-7 shadow-md"
+                            title="下载"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                        </a>
+                      )}
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="h-7 w-7 shadow-md text-destructive hover:text-destructive"
+                        title="删除"
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(gen); }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Card info — always present, consistent style */}
+                  <div className="p-3 space-y-1.5">
+                    <p className="text-sm font-medium line-clamp-2" title={gen.prompt}>
+                      {truncatePrompt(gen.prompt, 80)}
+                    </p>
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-muted-foreground">{MODE_LABELS[gen.mode] || gen.mode}</span>
+                        <StatusBadge status={effective} />
+                      </div>
+                      <span className="text-muted-foreground">{formatRelativeTime(gen.created_at)}</span>
+                    </div>
+                    {/* Error hint for failed/timed-out */}
+                    {isFailedOrTimeout && gen.error && (
+                      <p className="text-xs text-destructive/70 line-clamp-1" title={gen.error}>
+                        {truncatePrompt(gen.error, 50)}
+                      </p>
+                    )}
+                    {effective === "timed_out" && !gen.error && (
+                      <p className="text-xs text-destructive/70">
+                        任务可能已丢失，建议删除后重试
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Table View ─────────────────────────────────────────────────── */}
+      {data && mergedItems.length > 0 && viewMode === "table" && (
         <div className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[60px]">#</TableHead>
+                <TableHead className="w-[70px]">预览</TableHead>
                 <TableHead>提示词</TableHead>
 
                 {tab === "image" ? (
@@ -174,110 +579,137 @@ export default function History() {
                   </>
                 )}
 
-                <TableHead className="w-[80px]">状态</TableHead>
+                <TableHead className="w-[100px]">状态</TableHead>
                 <TableHead className="w-[130px]">创建时间</TableHead>
                 <TableHead className="w-[110px]">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.items.map((gen) => (
-                <TableRow key={gen.id}>
-                  {/* ID */}
-                  <TableCell className="font-mono text-xs">
-                    #{gen.id}
-                  </TableCell>
+              {mergedItems.map((gen) => {
+                const effective = getEffectiveStatus(gen);
+                const isFailedOrTimeout = effective === "failed" || effective === "timed_out";
 
-                  {/* Prompt */}
-                  <TableCell
-                    className="max-w-[200px] truncate"
-                    title={gen.prompt}
-                  >
-                    {truncatePrompt(gen.prompt)}
-                  </TableCell>
+                return (
+                  <TableRow key={gen.id} className={isFailedOrTimeout ? "bg-destructive/5" : ""}>
+                    {/* ID */}
+                    <TableCell className="font-mono text-xs">
+                      #{gen.id}
+                    </TableCell>
 
-                  {/* Type-specific columns */}
-                  {tab === "image" ? (
-                    <>
-                      <TableCell className="text-xs">{gen.size}</TableCell>
-                      <TableCell className="text-xs font-mono text-[11px]">
-                        {getModelName(gen)}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {MODE_LABELS[gen.mode] || gen.mode}
-                      </TableCell>
-                    </>
-                  ) : (
-                    <>
-                      <TableCell className="text-xs">
-                        <span className="inline-flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {formatDuration(gen.num_frames, gen.frame_rate)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs">{gen.size}</TableCell>
-                      <TableCell className="text-xs font-mono text-[11px]">
-                        {getModelName(gen)}
-                      </TableCell>
-                    </>
-                  )}
+                    {/* Thumbnail */}
+                    <TableCell>
+                      <GenerationThumbnail gen={gen} size={56} />
+                    </TableCell>
 
-                  {/* Status */}
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <StatusBadge status={gen.status} />
-                      {tab === "video" && gen.status === "in_progress" && gen.progress != null && (
-                        <Progress value={gen.progress} className="h-1" />
+                    {/* Prompt */}
+                    <TableCell
+                      className="max-w-[200px] truncate"
+                      title={gen.prompt}
+                    >
+                      {truncatePrompt(gen.prompt)}
+                      {isFailedOrTimeout && gen.error && (
+                        <p className="text-xs text-destructive/70 truncate mt-0.5" title={gen.error}>
+                          {truncatePrompt(gen.error, 40)}
+                        </p>
                       )}
-                    </div>
-                  </TableCell>
+                      {effective === "timed_out" && !gen.error && (
+                        <p className="text-xs text-destructive/70 mt-0.5">任务超时</p>
+                      )}
+                    </TableCell>
 
-                  {/* Created At */}
-                  <TableCell className="text-xs whitespace-nowrap">
-                    {formatDateTime(gen.created_at)}
-                  </TableCell>
+                    {/* Type-specific columns */}
+                    {tab === "image" ? (
+                      <>
+                        <TableCell className="text-xs">{gen.size}</TableCell>
+                        <TableCell className="text-xs font-mono text-[11px]">
+                          {getModelName(gen)}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {MODE_LABELS[gen.mode] || gen.mode}
+                        </TableCell>
+                      </>
+                    ) : (
+                      <>
+                        <TableCell className="text-xs">
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {formatDuration(gen.num_frames, gen.frame_rate)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-xs">{gen.size}</TableCell>
+                        <TableCell className="text-xs font-mono text-[11px]">
+                          {getModelName(gen)}
+                        </TableCell>
+                      </>
+                    )}
 
-                  {/* Actions */}
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        title="预览"
-                        onClick={() => setPreview(gen)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                    {/* Status */}
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <StatusBadge status={effective} />
+                        {(effective === "in_progress" || effective === "queued") && gen.progress != null && (
+                          <Progress value={gen.progress} className="h-1" />
+                        )}
+                      </div>
+                    </TableCell>
 
-                      {(gen.image_url || gen.video_url) && (
-                        <a
-                          href={gen.video_url || gen.image_url!}
-                          download
+                    {/* Created At */}
+                    <TableCell className="text-xs whitespace-nowrap">
+                      {formatRelativeTime(gen.created_at)}
+                    </TableCell>
+
+                    {/* Actions */}
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="重新生成"
+                          onClick={() => handleRegenerate(gen)}
                         >
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            title="下载"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        </a>
-                      )}
+                          <Wand2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="预览"
+                          onClick={() => setPreview(gen)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
 
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        title="删除"
-                        onClick={() => setDeleteTarget(gen)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                        {(gen.image_url || gen.video_url) && (
+                          <a
+                            href={gen.video_url || gen.image_url!}
+                            download
+                          >
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="下载"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </a>
+                        )}
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          title="删除"
+                          onClick={() => setDeleteTarget(gen)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
 
@@ -311,6 +743,36 @@ export default function History() {
         </div>
       )}
 
+      {/* ── Pagination for Grid View ─────────────────────────────── */}
+      {data && mergedItems.length > 0 && viewMode === "grid" && (
+        <div className="flex items-center justify-between px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            共 {data.total} 条
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              上一页
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {page} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── Preview Dialog ─────────────────────────────────────────── */}
       <Dialog open={preview !== null} onOpenChange={() => setPreview(null)}>
         {preview && (
@@ -320,6 +782,23 @@ export default function History() {
                 {preview.prompt}
               </DialogTitle>
             </DialogHeader>
+
+            {/* Reference/input images */}
+            {preview.input_images && preview.input_images.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">参考图片</p>
+                <div className="flex gap-2">
+                  {preview.input_images.map((url, i) => (
+                    <img
+                      key={i}
+                      src={url}
+                      alt={`参考图片 ${i + 1}`}
+                      className="h-16 w-16 rounded-md object-cover border"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Media */}
             <div className="flex items-center justify-center rounded-lg bg-muted min-h-[200px] overflow-hidden">
@@ -349,7 +828,7 @@ export default function History() {
               <div>
                 <p className="text-muted-foreground text-xs">状态</p>
                 <div className="mt-0.5">
-                  <StatusBadge status={preview.status} />
+                  <StatusBadge status={getEffectiveStatus(preview)} />
                 </div>
               </div>
               <div>
@@ -383,34 +862,43 @@ export default function History() {
                   {formatDateTime(preview.created_at)}
                 </p>
               </div>
-              {preview.progress != null && preview.status === "in_progress" && (
+              {getEffectiveStatus(preview) === "in_progress" && preview.progress != null && (
                 <div className="col-span-2">
                   <p className="text-muted-foreground text-xs">生成进度</p>
                   <Progress value={preview.progress} className="mt-1 h-2" />
                 </div>
               )}
-              {preview.error && (
+              {(preview.error || getEffectiveStatus(preview) === "timed_out") && (
                 <div className="col-span-2">
-                  <p className="text-muted-foreground text-xs">错误信息</p>
+                  <p className="text-muted-foreground text-xs">
+                    {getEffectiveStatus(preview) === "timed_out" ? "超时提示" : "错误信息"}
+                  </p>
                   <p className="text-sm text-destructive mt-0.5 break-words">
-                    {preview.error}
+                    {preview.error || "任务已超过30分钟未完成，可能已丢失。建议删除后重新生成。"}
                   </p>
                 </div>
               )}
             </div>
 
             {/* Actions */}
-            {(preview.image_url || preview.video_url) && (
-              <a
-                href={preview.video_url || preview.image_url!}
-                download
-              >
-                <Button className="w-full" size="sm">
-                  <Download className="h-4 w-4 mr-2" />
-                  下载
-                </Button>
-              </a>
-            )}
+            <div className="flex gap-2">
+              {(preview.image_url || preview.video_url) && (
+                <a
+                  href={preview.video_url || preview.image_url!}
+                  download
+                  className="flex-1"
+                >
+                  <Button variant="outline" size="sm" className="w-full">
+                    <Download className="h-4 w-4 mr-2" />
+                    下载
+                  </Button>
+                </a>
+              )}
+              <Button size="sm" onClick={() => handleRegenerate(preview)} className="flex-1">
+                <Wand2 className="h-4 w-4 mr-2" />
+                重新生成
+              </Button>
+            </div>
           </DialogContent>
         )}
       </Dialog>
@@ -442,7 +930,7 @@ export default function History() {
                 </p>
                 <p>
                   <span className="font-medium">状态：</span>
-                  {STATUS_LABELS[deleteTarget.status] || deleteTarget.status}
+                  {STATUS_LABELS[getEffectiveStatus(deleteTarget)] || deleteTarget.status}
                 </p>
               </div>
             </DialogDescription>

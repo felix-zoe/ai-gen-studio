@@ -1,5 +1,6 @@
 """Video generation endpoint — creates async Agnes video task and polls status."""
 
+import json
 import logging
 
 logger = logging.getLogger("uvicorn")
@@ -94,6 +95,7 @@ async def generate_video(
             mode=GenerationMode(body.mode),
             prompt=body.prompt,
             size=f"{body.width}x{body.height}",
+            input_images=json.dumps(body.image_cos_keys) if body.image_cos_keys else None,
             status=GenerationStatus.failed,
             error=f"Upstream timeout: {exc}",
             width=body.width,
@@ -116,6 +118,7 @@ async def generate_video(
             mode=GenerationMode(body.mode),
             prompt=body.prompt,
             size=f"{body.width}x{body.height}",
+            input_images=json.dumps(body.image_cos_keys) if body.image_cos_keys else None,
             status=GenerationStatus.failed,
             error=str(exc),
             width=body.width,
@@ -137,6 +140,7 @@ async def generate_video(
         mode=GenerationMode(body.mode),
         prompt=body.prompt,
         size=f"{body.width}x{body.height}",
+        input_images=json.dumps(body.image_cos_keys) if body.image_cos_keys else None,
         status=GenerationStatus.queued,
         progress=0,
         upstream_video_id=upstream_video_id,

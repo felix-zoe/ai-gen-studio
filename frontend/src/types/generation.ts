@@ -7,6 +7,7 @@ export interface Generation {
   size: string;
   image_url?: string | null;
   video_url?: string | null;
+  input_images?: string[] | null;  // presigned URLs for reference/input images
   progress?: number | null;
   status: string;
   error?: string | null;
@@ -30,6 +31,7 @@ export interface GenerateImageRequest {
   prompt: string;
   size: string;
   image_urls?: string[];
+  image_cos_keys?: string[];
 }
 
 export interface GenerateVideoRequest {
@@ -37,6 +39,7 @@ export interface GenerateVideoRequest {
   mode: string;
   prompt: string;
   image_urls?: string[];
+  image_cos_keys?: string[];
   width: number;
   height: number;
   num_frames: number;

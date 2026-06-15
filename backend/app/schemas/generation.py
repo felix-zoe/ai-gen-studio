@@ -14,6 +14,7 @@ class GenerateImageRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=4000)
     size: str = Field(default="1024x1024", pattern=r"^\d+x\d+$")
     image_urls: Optional[list[str]] = Field(None, description="Reference image URLs (required for img2img, Agnes only)")
+    image_cos_keys: Optional[list[str]] = Field(None, description="COS keys of uploaded reference images (for history storage)")
 
 
 # ── Video request ──────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ class GenerateVideoRequest(BaseModel):
     mode: str = Field(..., description="text2vid, img2vid, multimg, or keyframes")
     prompt: str = Field(..., min_length=1, max_length=4000)
     image_urls: Optional[list[str]] = Field(None, description="Image URLs (required for img2vid/multimg/keyframes)")
+    image_cos_keys: Optional[list[str]] = Field(None, description="COS keys of uploaded reference images (for history storage)")
     width: int = Field(1152, ge=256, le=1920)
     height: int = Field(768, ge=256, le=1920)
     num_frames: int = Field(121, ge=9, le=441)
@@ -40,6 +42,7 @@ class GenerationResponse(BaseModel):
     size: str
     image_url: Optional[str] = None  # presigned URL
     video_url: Optional[str] = None  # presigned URL (video only)
+    input_images: Optional[list[str]] = None  # presigned URLs for reference/input images
     progress: Optional[int] = None
     status: str
     error: Optional[str] = None
@@ -64,3 +67,7 @@ class VideoCreateResponse(BaseModel):
     id: int
     status: str
     progress: int = 0
+
+
+class BatchDeleteRequest(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=100, description="List of generation IDs to delete")

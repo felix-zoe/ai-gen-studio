@@ -120,3 +120,24 @@ async def upload_video_from_url(video_url: str, user_id: int) -> str:
 
     filename = video_url.rsplit("/", 1)[-1].split("?")[0] or "video.mp4"
     return upload_file(resp.content, user_id, filename)
+
+
+def delete_object(cos_key: str) -> bool:
+    """
+    Delete a COS object by its key.
+
+    Returns True on success, False on failure (logs error silently).
+    """
+    if not cos_key:
+        return False
+    try:
+        _check_configured()
+        client = _get_client()
+        client.delete_object(
+            Bucket=settings.COS_BUCKET,
+            Key=cos_key,
+        )
+        return True
+    except Exception:
+        # Silently swallow — COS cleanup is best-effort
+        return False

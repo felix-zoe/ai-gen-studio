@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import type {
   Generation,
@@ -58,15 +58,60 @@ export function useGenerations(
   type: string = "image",
   page: number = 1,
   pageSize: number = 20,
+  search?: string,
+  statusFilter?: string,
+  modeFilter?: string,
 ) {
   return useQuery({
-    queryKey: ["generations", type, page],
+    queryKey: ["generations", type, page, search, statusFilter, modeFilter],
     queryFn: () =>
       api
         .get<GenerationListResponse>("/generations", {
-          params: { type, page, page_size: pageSize },
+          params: {
+            type,
+            page,
+            page_size: pageSize,
+            ...(search ? { search } : {}),
+            ...(statusFilter ? { status: statusFilter } : {}),
+            ...(modeFilter ? { mode: modeFilter } : {}),
+          },
         })
         .then((r) => r.data),
+    // List does NOT poll — individual active items are polled via usePollActiveItems
+    placeholderData: keepPreviousData,
+  });
+}
+
+// ── Poll active (in-progress/queued) items ────────────────────────────────
+
+/**
+ * Polls each active generation ID individually every 5 seconds.
+ * When any item reaches terminal state (completed/failed), invalidates the
+ * generations list cache so the list refreshes once — without continuous
+ * full-list polling that causes flicker.
+ */
+export function usePollActiveItems(ids: number[]) {
+  const queryClient = useQueryClient();
+
+  return useQuery({
+    queryKey: ["generations-poll", ids],
+    queryFn: async () => {
+      const results = await Promise.all(
+        ids.map((id) =>
+          api.get<Generation>(`/generations/${id}`).then((r) => r.data)
+        )
+      );
+      // Check if any item reached terminal state — trigger one list refresh
+      const hasTerminal = results.some(
+        (r) => r.status === "completed" || r.status === "failed"
+      );
+      if (hasTerminal) {
+        queryClient.invalidateQueries({ queryKey: ["generations"] });
+      }
+      return results;
+    },
+    enabled: ids.length > 0,
+    refetchInterval: 5000,
   });
 }
 

@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Loader2,
   Film,
@@ -43,15 +44,34 @@ const DURATION_PRESETS = [
 ];
 
 export default function VideoGeneration() {
+  const [searchParams] = useSearchParams();
   const [provider, setProvider] = useState("agnes");
   const [mode, setMode] = useState("text2vid");
   const [prompt, setPrompt] = useState("");
   const [aspectIndex, setAspectIndex] = useState(0);
   const [framesIndex, setFramesIndex] = useState(1); // default ~5s
   const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [imageCosKeys, setImageCosKeys] = useState<string[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
   const [pollingId, setPollingId] = useState<number | null>(null);
+
+  // Pre-fill form from URL searchParams (for "regenerate" from history)
+  useEffect(() => {
+    const sp = searchParams;
+    if (sp.get("prompt")) setPrompt(sp.get("prompt")!);
+    if (sp.get("mode")) setMode(sp.get("mode")!);
+    if (sp.get("size")) {
+      const sizeStr = sp.get("size")!;
+      const match = sizeStr.match(/^(\d+)x(\d+)$/);
+      if (match) {
+        const w = parseInt(match[1]);
+        const h = parseInt(match[2]);
+        const idx = ASPECT_RATIOS.findIndex((a) => a.width === w && a.height === h);
+        if (idx >= 0) setAspectIndex(idx);
+      }
+    }
+  }, [searchParams]);
 
   const generateMutation = useGenerateVideo();
   const uploadMutation = useUploadImage();
@@ -70,6 +90,7 @@ export default function VideoGeneration() {
   const handleModeChange = (newMode: string) => {
     setMode(newMode);
     setImageUrls([]);
+    setImageCosKeys([]);
     setPreviewUrls([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -83,12 +104,15 @@ export default function VideoGeneration() {
       );
       const results = await Promise.all(uploads);
       const newUrls = results.map((r) => r.url);
+      const newCosKeys = results.map((r) => r.cos_key);
       if (mode === "img2vid") {
         // img2vid only keeps the latest single image
         setImageUrls(newUrls.slice(0, 1));
+        setImageCosKeys(newCosKeys.slice(0, 1));
         setPreviewUrls(newUrls.slice(0, 1));
       } else {
         setImageUrls((prev) => [...prev, ...newUrls]);
+        setImageCosKeys((prev) => [...prev, ...newCosKeys]);
         setPreviewUrls((prev) => [...prev, ...newUrls]);
       }
     } catch {
@@ -99,6 +123,7 @@ export default function VideoGeneration() {
 
   const removeImage = (index: number) => {
     setImageUrls((prev) => prev.filter((_, i) => i !== index));
+    setImageCosKeys((prev) => prev.filter((_, i) => i !== index));
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -118,7 +143,7 @@ export default function VideoGeneration() {
         height: aspect.height,
         num_frames: preset.frames,
         frame_rate: frameRate,
-        ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
+        ...(imageUrls.length > 0 ? { image_urls: imageUrls, image_cos_keys: imageCosKeys } : {}),
       },
       {
         onSuccess: (data) => {
@@ -132,6 +157,7 @@ export default function VideoGeneration() {
     setPollingId(null);
     setPrompt("");
     setImageUrls([]);
+    setImageCosKeys([]);
     setPreviewUrls([]);
     generateMutation.reset();
     if (fileInputRef.current) fileInputRef.current.value = "";

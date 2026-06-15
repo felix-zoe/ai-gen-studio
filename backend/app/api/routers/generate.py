@@ -1,3 +1,4 @@
+import json
 import logging
 
 logger = logging.getLogger("uvicorn")
@@ -84,6 +85,7 @@ async def generate_image(
             mode=mode,
             prompt=body.prompt,
             size=body.size,
+            input_images=json.dumps(body.image_cos_keys) if body.image_cos_keys else None,
             status=GenerationStatus.failed,
             error=str(exc),
         )
@@ -102,6 +104,7 @@ async def generate_image(
         prompt=body.prompt,
         size=body.size,
         cos_key=image_cos_key,
+        input_images=json.dumps(body.image_cos_keys) if body.image_cos_keys else None,
         status=GenerationStatus.completed,
     )
     db.add(record)

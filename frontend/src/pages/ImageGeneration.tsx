@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Loader2, Upload, Wand2, Download, X } from "lucide-react";
 import { useGenerateImage, useUploadImage } from "@/hooks/useGeneration";
 import { Button } from "@/components/ui/button";
@@ -45,12 +46,25 @@ const COMMON_SIZES = [
 ];
 
 export default function ImageGeneration() {
+  const [searchParams] = useSearchParams();
   const [provider, setProvider] = useState("sensenova");
   const [mode, setMode] = useState("text2img");
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState("2048x2048");
   const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [imageCosKeys, setImageCosKeys] = useState<string[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+
+  // Pre-fill form from URL searchParams (for "regenerate" from history)
+  useEffect(() => {
+    const sp = searchParams;
+    if (sp.get("prompt")) setPrompt(sp.get("prompt")!);
+    if (sp.get("mode") && sp.get("mode") === "img2img") {
+      setMode("img2img");
+      setProvider("agnes");
+    }
+    if (sp.get("size")) setSize(sp.get("size")!);
+  }, [searchParams]);
 
   const sizes = provider === "sensenova" ? SENSENOVA_SIZES : COMMON_SIZES;
 
@@ -88,7 +102,9 @@ export default function ImageGeneration() {
       );
       const results = await Promise.all(uploads);
       const newUrls = results.map((r) => r.url);
+      const newCosKeys = results.map((r) => r.cos_key);
       setImageUrls((prev) => [...prev, ...newUrls]);
+      setImageCosKeys((prev) => [...prev, ...newCosKeys]);
       setPreviewUrls((prev) => [...prev, ...newUrls]);
     } catch {
       // error handled by mutation
@@ -99,6 +115,7 @@ export default function ImageGeneration() {
 
   const removeImage = (index: number) => {
     setImageUrls((prev) => prev.filter((_, i) => i !== index));
+    setImageCosKeys((prev) => prev.filter((_, i) => i !== index));
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -110,7 +127,7 @@ export default function ImageGeneration() {
       prompt: prompt.trim(),
       size,
       ...(mode === "img2img" && imageUrls.length > 0
-        ? { image_urls: imageUrls }
+        ? { image_urls: imageUrls, image_cos_keys: imageCosKeys }
         : {}),
     });
   };
@@ -118,6 +135,7 @@ export default function ImageGeneration() {
   const resetForm = () => {
     setPrompt("");
     setImageUrls([]);
+    setImageCosKeys([]);
     setPreviewUrls([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
