@@ -28,6 +28,8 @@ class GenerationMode(str, enum.Enum):
     img2img = "img2img"
     text2vid = "text2vid"
     img2vid = "img2vid"
+    multimg = "multimg"
+    keyframes = "keyframes"
 
 
 class GenerationStatus(str, enum.Enum):
@@ -59,7 +61,7 @@ class Generation(Base):
 
     # Video-specific fields
     upstream_video_id: Mapped[str | None] = mapped_column(
-        String(128), nullable=True, index=True
+        Text, nullable=True, index=True
     )
     progress: Mapped[int | None] = mapped_column(Integer, nullable=True)
     video_cos_key: Mapped[str | None] = mapped_column(String(512), nullable=True)

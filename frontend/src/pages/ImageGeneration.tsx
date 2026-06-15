@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from "react";
-import { Loader2, ImagePlus, Wand2, Download } from "lucide-react";
+import { Loader2, Upload, Wand2, Download, X } from "lucide-react";
 import { useGenerateImage, useUploadImage } from "@/hooks/useGeneration";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -50,10 +49,23 @@ export default function ImageGeneration() {
   const [mode, setMode] = useState("text2img");
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState("2048x2048");
-  const [imageUrl, setImageUrl] = useState("");
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
   const sizes = provider === "sensenova" ? SENSENOVA_SIZES : COMMON_SIZES;
+
+  // Auto-switch provider/mode when the other changes to an invalid combo
+  useEffect(() => {
+    if (mode === "img2img") {
+      setProvider("agnes");
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    if (provider === "sensenova" && mode === "img2img") {
+      setMode("text2img");
+    }
+  }, [provider]);
 
   // Reset size when provider changes and current size isn't valid for the new provider
   useEffect(() => {
@@ -68,15 +80,26 @@ export default function ImageGeneration() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     try {
-      const result = await uploadMutation.mutateAsync(file);
-      setImageUrl(result.url);
-      setPreviewUrl(result.url);
+      const uploads = Array.from(files).map((file) =>
+        uploadMutation.mutateAsync(file),
+      );
+      const results = await Promise.all(uploads);
+      const newUrls = results.map((r) => r.url);
+      setImageUrls((prev) => [...prev, ...newUrls]);
+      setPreviewUrls((prev) => [...prev, ...newUrls]);
     } catch {
       // error handled by mutation
     }
+    // Reset so the same file(s) can be selected again
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeImage = (index: number) => {
+    setImageUrls((prev) => prev.filter((_, i) => i !== index));
+    setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleGenerate = () => {
@@ -86,14 +109,16 @@ export default function ImageGeneration() {
       mode,
       prompt: prompt.trim(),
       size,
-      ...(mode === "img2img" && imageUrl ? { image_url: imageUrl } : {}),
+      ...(mode === "img2img" && imageUrls.length > 0
+        ? { image_urls: imageUrls }
+        : {}),
     });
   };
 
   const resetForm = () => {
     setPrompt("");
-    setImageUrl("");
-    setPreviewUrl("");
+    setImageUrls([]);
+    setPreviewUrls([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -136,7 +161,9 @@ export default function ImageGeneration() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="text2img">文生图</SelectItem>
-                  <SelectItem value="img2img">图生图</SelectItem>
+                  {provider === "agnes" && (
+                    <SelectItem value="img2img">图生图</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -158,26 +185,52 @@ export default function ImageGeneration() {
               </Select>
             </div>
 
-            {/* Reference image (img2img only) */}
+            {/* Reference images (img2img only) */}
             {mode === "img2img" && (
               <div className="space-y-2">
                 <Label>参考图片</Label>
                 <div className="flex items-center gap-2">
-                  <Input
+                  <input
                     ref={fileInputRef}
                     type="file"
+                    multiple
                     accept="image/*"
                     onChange={handleFileUpload}
-                    className="flex-1"
+                    className="hidden"
                   />
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadMutation.isPending}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    {uploadMutation.isPending ? "上传中..." : "选择图片"}
+                  </Button>
                 </div>
-                {previewUrl && (
-                  <img
-                    src={previewUrl}
-                    alt="preview"
-                    className="mt-2 h-32 w-auto rounded-md object-cover"
-                  />
+
+                {/* Preview grid */}
+                {previewUrls.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {previewUrls.map((url, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={url}
+                          alt={`参考图片 ${index + 1}`}
+                          className="h-24 w-full rounded-md object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(index)}
+                          className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
+
                 {uploadMutation.isPending && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -264,7 +317,7 @@ export default function ImageGeneration() {
                       下载
                     </Button>
                   </a>
-                  <Button size="sm" onClick={resetForm} className="flex-1">
+                  <Button size="sm" onClick={() => generateMutation.reset()} className="flex-1">
                     继续生成
                   </Button>
                 </div>
@@ -272,7 +325,7 @@ export default function ImageGeneration() {
             ) : (
               <div className="flex aspect-square items-center justify-center rounded-lg border border-dashed">
                 <div className="text-center text-muted-foreground">
-                  <ImagePlus className="mx-auto h-8 w-8" />
+                  <Upload className="mx-auto h-8 w-8" />
                   <p className="mt-2 text-sm">填写参数并点击生成</p>
                 </div>
               </div>

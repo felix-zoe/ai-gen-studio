@@ -55,9 +55,9 @@ async def generate_image(
         raise HTTPException(status_code=400, detail="Invalid provider")
     if body.mode not in ("text2img", "img2img"):
         raise HTTPException(status_code=400, detail="Invalid mode")
-    if body.mode == "img2img" and not body.image_url:
+    if body.mode == "img2img" and not body.image_urls:
         raise HTTPException(
-            status_code=400, detail="image_url is required for img2img mode"
+            status_code=400, detail="image_urls are required for img2img mode"
         )
     if body.provider == "sensenova" and body.mode == "img2img":
         raise HTTPException(
@@ -130,7 +130,7 @@ async def _call_sensenova(
             "size": body.size,
             "n": 1,
         }
-        if mode == GenerationMode.img2img and body.image_url:
+        if mode == GenerationMode.img2img and body.image_urls:
             payload["image"] = body.image_url
 
         resp = await client.post(
@@ -156,8 +156,8 @@ async def _call_agnes(
 ) -> str:
     """Call Agnes API → download image → upload to COS → return COS key."""
     extra_body: dict = {"response_format": "url"}
-    if mode == GenerationMode.img2img and body.image_url:
-        extra_body["image"] = [body.image_url]
+    if mode == GenerationMode.img2img and body.image_urls:
+        extra_body["image"] = body.image_urls
 
     async with httpx.AsyncClient(timeout=120) as client:
         payload: dict = {

@@ -2,13 +2,13 @@ import { useState, useRef } from "react";
 import {
   Loader2,
   Film,
-  ImagePlus,
+  Upload,
   Download,
+  X,
   RefreshCw,
 } from "lucide-react";
 import { useGenerateVideo, useVideoGeneration, useUploadImage } from "@/hooks/useGeneration";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -48,8 +48,8 @@ export default function VideoGeneration() {
   const [prompt, setPrompt] = useState("");
   const [aspectIndex, setAspectIndex] = useState(0);
   const [framesIndex, setFramesIndex] = useState(1); // default ~5s
-  const [imageUrl, setImageUrl] = useState("");
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
   const [pollingId, setPollingId] = useState<number | null>(null);
 
@@ -63,21 +63,49 @@ export default function VideoGeneration() {
   const frameRate = 24;
 
   const pollData = pollQuery.data;
-  const isPolling = pollingId !== null && pollData && !isTerminal;
   const isTerminal =
     pollData?.status === "completed" || pollData?.status === "failed";
+  const isPolling = pollingId !== null && pollData && !isTerminal;
+
+  const handleModeChange = (newMode: string) => {
+    setMode(newMode);
+    setImageUrls([]);
+    setPreviewUrls([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     try {
-      const result = await uploadMutation.mutateAsync(file);
-      setImageUrl(result.url);
-      setPreviewUrl(result.url);
+      const uploads = Array.from(files).map((file) =>
+        uploadMutation.mutateAsync(file),
+      );
+      const results = await Promise.all(uploads);
+      const newUrls = results.map((r) => r.url);
+      if (mode === "img2vid") {
+        // img2vid only keeps the latest single image
+        setImageUrls(newUrls.slice(0, 1));
+        setPreviewUrls(newUrls.slice(0, 1));
+      } else {
+        setImageUrls((prev) => [...prev, ...newUrls]);
+        setPreviewUrls((prev) => [...prev, ...newUrls]);
+      }
     } catch {
       // handled
     }
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
+
+  const removeImage = (index: number) => {
+    setImageUrls((prev) => prev.filter((_, i) => i !== index));
+    setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Image count validation for different modes
+  const requiredImages = mode === "text2vid" ? 0 : mode === "img2vid" ? 1 : 2;
+  const hasEnoughImages = imageUrls.length >= requiredImages;
+  const canGenerate = prompt.trim() !== "" && hasEnoughImages && !generateMutation.isPending && !isPolling;
 
   const handleGenerate = () => {
     if (!prompt.trim()) return;
@@ -90,7 +118,7 @@ export default function VideoGeneration() {
         height: aspect.height,
         num_frames: preset.frames,
         frame_rate: frameRate,
-        ...(mode === "img2vid" && imageUrl ? { image_url: imageUrl } : {}),
+        ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
       },
       {
         onSuccess: (data) => {
@@ -103,8 +131,8 @@ export default function VideoGeneration() {
   const resetForm = () => {
     setPollingId(null);
     setPrompt("");
-    setImageUrl("");
-    setPreviewUrl("");
+    setImageUrls([]);
+    setPreviewUrls([]);
     generateMutation.reset();
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -144,13 +172,15 @@ export default function VideoGeneration() {
             {/* Mode */}
             <div className="space-y-2">
               <Label>生成模式</Label>
-              <Select value={mode} onValueChange={setMode}>
+              <Select value={mode} onValueChange={handleModeChange}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="text2vid">文生视频</SelectItem>
                   <SelectItem value="img2vid">图生视频</SelectItem>
+                  <SelectItem value="multimg">多图生成</SelectItem>
+                  <SelectItem value="keyframes">关键帧动画</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -195,28 +225,86 @@ export default function VideoGeneration() {
               </Select>
             </div>
 
-            {/* Reference image (img2vid) */}
-            {mode === "img2vid" && (
+            {/* Reference images (img2vid / multimg / keyframes) */}
+            {mode !== "text2vid" && (
               <div className="space-y-2">
-                <Label>参考图片</Label>
-                <Input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileUpload}
-                />
-                {previewUrl && (
-                  <img
-                    src={previewUrl}
-                    alt="preview"
-                    className="mt-2 h-32 w-auto rounded-md object-cover"
+                <Label>
+                  {mode === "img2vid" ? "参考图片" : mode === "multimg" ? "参考图片（多张）" : "关键帧图片（多张）"}
+                </Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple={mode !== "img2vid"}
+                    accept="image/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
                   />
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadMutation.isPending}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    {uploadMutation.isPending ? "上传中..." : "选择图片"}
+                  </Button>
+                </div>
+
+                {/* Preview */}
+                {previewUrls.length > 0 && (
+                  mode === "img2vid" ? (
+                    // Single image preview (img2vid)
+                    <div className="relative group mt-2 w-fit">
+                      <img
+                        src={previewUrls[0]}
+                        alt="参考图片"
+                        className="h-32 w-auto rounded-md object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(0)}
+                        className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    // Grid preview (multimg / keyframes)
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      {previewUrls.map((url, index) => (
+                        <div key={index} className="relative group">
+                          <img
+                            src={url}
+                            alt={`参考图片 ${index + 1}`}
+                            className="h-24 w-full rounded-md object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeImage(index)}
+                            className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 )}
+
                 {uploadMutation.isPending && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     上传中...
                   </div>
+                )}
+
+                {!hasEnoughImages && requiredImages > 0 && !uploadMutation.isPending && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {mode === "img2vid"
+                      ? "需要上传 1 张参考图片"
+                      : `需要上传至少 2 张图片（已上传 ${imageUrls.length} 张）`}
+                  </p>
                 )}
               </div>
             )}
@@ -236,9 +324,7 @@ export default function VideoGeneration() {
             <div className="flex gap-2">
               <Button
                 onClick={handleGenerate}
-                disabled={
-                  generateMutation.isPending || isPolling || !prompt.trim()
-                }
+                disabled={!canGenerate}
                 className="flex-1"
               >
                 {generateMutation.isPending ? (

@@ -16,7 +16,7 @@ from app.utils.cos import get_presigned_url, upload_video_from_url
 
 router = APIRouter(prefix="/generations", tags=["generations"])
 
-AGNES_VIDEO_STATUS_URL = "https://apihub.agnes-ai.com/agnesapi"
+AGNES_VIDEO_STATUS_URL = "https://apihub.agnes-ai.com/v1/videos"
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +142,10 @@ async def _poll_video_status(
     row: Generation, api_key: str, db: Session
 ) -> None:
     """Poll Agnes for the latest video task status and update the DB record."""
-    async with httpx.AsyncClient(timeout=30) as client:
+    poll_url = f"{AGNES_VIDEO_STATUS_URL}/{row.upstream_video_id}"
+    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)) as client:
         resp = await client.get(
-            AGNES_VIDEO_STATUS_URL,
-            params={"video_id": row.upstream_video_id, "model_name": "agnes-video-v2.0"},
+            poll_url,
             headers={"Authorization": f"Bearer {api_key}"},
         )
 
@@ -161,7 +161,8 @@ async def _poll_video_status(
         row.progress = int(progress)
 
     if upstream_status == "completed":
-        video_url = data.get("remixed_from_video_id")
+        # Agnes returns video_url in the completed response; fall back to remixed_from_video_id
+        video_url = data.get("video_url") or data.get("remixed_from_video_id")
         if video_url:
             try:
                 video_cos_key = await upload_video_from_url(video_url, row.user_id)

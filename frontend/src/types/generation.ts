@@ -29,14 +29,14 @@ export interface GenerateImageRequest {
   mode: string;
   prompt: string;
   size: string;
-  image_url?: string;
+  image_urls?: string[];
 }
 
 export interface GenerateVideoRequest {
   provider: string;
   mode: string;
   prompt: string;
-  image_url?: string;
+  image_urls?: string[];
   width: number;
   height: number;
   num_frames: number;

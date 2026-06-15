@@ -13,16 +13,16 @@ class GenerateImageRequest(BaseModel):
     mode: str = Field(..., description="text2img or img2img")
     prompt: str = Field(..., min_length=1, max_length=4000)
     size: str = Field(default="1024x1024", pattern=r"^\d+x\d+$")
-    image_url: Optional[str] = Field(None, description="Reference image URL (required for img2img)")
+    image_urls: Optional[list[str]] = Field(None, description="Reference image URLs (required for img2img, Agnes only)")
 
 
 # ── Video request ──────────────────────────────────────────────────────────────
 
 class GenerateVideoRequest(BaseModel):
     provider: str = Field("agnes", description="agnes only for now")
-    mode: str = Field(..., description="text2vid or img2vid")
+    mode: str = Field(..., description="text2vid, img2vid, multimg, or keyframes")
     prompt: str = Field(..., min_length=1, max_length=4000)
-    image_url: Optional[str] = Field(None, description="Reference image URL (required for img2vid)")
+    image_urls: Optional[list[str]] = Field(None, description="Image URLs (required for img2vid/multimg/keyframes)")
     width: int = Field(1152, ge=256, le=1920)
     height: int = Field(768, ge=256, le=1920)
     num_frames: int = Field(121, ge=9, le=441)
