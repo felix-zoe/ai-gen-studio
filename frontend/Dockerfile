@@ -34,4 +34,4 @@ USER appuser
 EXPOSE 3000
 
 # --single 启用 SPA 模式：所有路径 fallback 到 index.html
-CMD ["npx", "--yes", "serve", "dist", "--single", "--listen", "0.0.0.0:3000"]
+CMD ["npx", "--yes", "serve", "dist", "--single", "--listen", "tcp://0.0.0.0:3000"]
