@@ -15,6 +15,8 @@ import {
   Search,
   Wand2,
   AlertTriangle,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useGenerations, useDeleteGeneration, usePollActiveItems } from "@/hooks/useGeneration";
 import { Badge } from "@/components/ui/badge";
@@ -202,6 +204,8 @@ export default function History() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [modeFilter, setModeFilter] = useState<string>("all");
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [promptExpanded, setPromptExpanded] = useState(false);
 
   const effectiveStatus = statusFilter === "all" ? undefined : statusFilter;
   const effectiveMode = modeFilter === "all" ? undefined : modeFilter;
@@ -774,130 +778,182 @@ export default function History() {
       )}
 
       {/* ── Preview Dialog ─────────────────────────────────────────── */}
-      <Dialog open={preview !== null} onOpenChange={() => setPreview(null)}>
+      <Dialog open={preview !== null} onOpenChange={() => { setPreview(null); setPromptExpanded(false); setPromptCopied(false); }}>
         {preview && (
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="pr-8 line-clamp-2 text-base">
-                {preview.prompt}
-              </DialogTitle>
-            </DialogHeader>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex flex-col md:flex-row gap-6">
 
-            {/* Reference/input images */}
-            {preview.input_images && preview.input_images.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">参考图片</p>
-                <div className="flex gap-2">
-                  {preview.input_images.map((url, i) => (
-                    <img
-                      key={i}
-                      src={url}
-                      alt={`参考图片 ${i + 1}`}
-                      className="h-16 w-16 rounded-md object-cover border"
+              {/* ── Left: Media + Reference Images ─────────────────── */}
+              <div className="flex-1 min-w-0 space-y-4 pt-4">
+                {/* Media preview */}
+                <div className="flex items-center justify-center rounded-lg bg-muted min-h-[240px] overflow-hidden">
+                  {preview.type === "video" && preview.video_url ? (
+                    <video
+                      src={preview.video_url}
+                      controls
+                      autoPlay
+                      className="max-h-[55vh] w-full object-contain"
                     />
-                  ))}
+                  ) : preview.image_url ? (
+                    <img
+                      src={preview.image_url}
+                      alt={preview.prompt}
+                      className="max-h-[55vh] w-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-[240px] text-muted-foreground">
+                      <Image className="h-8 w-8" />
+                      <span className="ml-2">暂无预览</span>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
 
-            {/* Media */}
-            <div className="flex items-center justify-center rounded-lg bg-muted min-h-[200px] overflow-hidden">
-              {preview.type === "video" && preview.video_url ? (
-                <video
-                  src={preview.video_url}
-                  controls
-                  autoPlay
-                  className="max-h-[45vh] w-full object-contain"
-                />
-              ) : preview.image_url ? (
-                <img
-                  src={preview.image_url}
-                  alt={preview.prompt}
-                  className="max-h-[45vh] w-full object-contain"
-                />
-              ) : (
-                <div className="flex items-center justify-center h-[200px] text-muted-foreground">
-                  <Image className="h-8 w-8" />
-                  <span className="ml-2">暂无预览</span>
-                </div>
-              )}
-            </div>
+                {/* Reference/input images */}
+                {preview.input_images && preview.input_images.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">参考图片</p>
+                    <div className="flex flex-wrap gap-2">
+                      {preview.input_images.map((url, i) => (
+                        <a
+                          key={i}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group relative block rounded-lg overflow-hidden border"
+                        >
+                          <img
+                            src={url}
+                            alt={`参考图片 ${i + 1}`}
+                            className="h-24 w-24 object-cover transition-transform group-hover:scale-105"
+                          />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                            <Download className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
 
-            {/* Info grid */}
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-              <div>
-                <p className="text-muted-foreground text-xs">状态</p>
-                <div className="mt-0.5">
-                  <StatusBadge status={getEffectiveStatus(preview)} />
-                </div>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">模型</p>
-                <p className="font-medium font-mono text-xs mt-0.5">
-                  {getModelName(preview)}
-                </p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">模式</p>
-                <p className="font-medium">
-                  {MODE_LABELS[preview.mode] || preview.mode}
-                </p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">尺寸</p>
-                <p className="font-medium">{preview.size}</p>
-              </div>
-              {preview.type === "video" && (
-                <div>
-                  <p className="text-muted-foreground text-xs">时长</p>
-                  <p className="font-medium">
-                    {formatDuration(preview.num_frames, preview.frame_rate)}
-                    {preview.num_frames && `（${preview.num_frames}f）`}
+              {/* ── Right: Info Panel ──────────────────────────────── */}
+              <div className="w-full md:w-[300px] shrink-0 space-y-5 pt-4">
+                {/* Prompt */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground">提示词</p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        navigator.clipboard.writeText(preview.prompt);
+                        setPromptCopied(true);
+                        setTimeout(() => setPromptCopied(false), 2000);
+                      }}
+                    >
+                      {promptCopied ? (
+                        <Check className="h-3.5 w-3.5 text-green-500" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                  <p
+                    className={`text-sm leading-relaxed break-words ${promptExpanded ? "" : "line-clamp-3"}`}
+                  >
+                    {preview.prompt}
                   </p>
+                  {preview.prompt.length > 120 && (
+                    <button
+                      type="button"
+                      onClick={() => setPromptExpanded((v) => !v)}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      {promptExpanded ? "收起" : "展开全文"}
+                    </button>
+                  )}
                 </div>
-              )}
-              <div>
-                <p className="text-muted-foreground text-xs">创建时间</p>
-                <p className="font-medium">
-                  {formatDateTime(preview.created_at)}
-                </p>
-              </div>
-              {getEffectiveStatus(preview) === "in_progress" && preview.progress != null && (
-                <div className="col-span-2">
-                  <p className="text-muted-foreground text-xs">生成进度</p>
-                  <Progress value={preview.progress} className="mt-1 h-2" />
-                </div>
-              )}
-              {(preview.error || getEffectiveStatus(preview) === "timed_out") && (
-                <div className="col-span-2">
-                  <p className="text-muted-foreground text-xs">
-                    {getEffectiveStatus(preview) === "timed_out" ? "超时提示" : "错误信息"}
-                  </p>
-                  <p className="text-sm text-destructive mt-0.5 break-words">
-                    {preview.error || "任务已超过30分钟未完成，可能已丢失。建议删除后重新生成。"}
-                  </p>
-                </div>
-              )}
-            </div>
 
-            {/* Actions */}
-            <div className="flex gap-2">
-              {(preview.image_url || preview.video_url) && (
-                <a
-                  href={preview.video_url || preview.image_url!}
-                  download
-                  className="flex-1"
-                >
-                  <Button variant="outline" size="sm" className="w-full">
-                    <Download className="h-4 w-4 mr-2" />
-                    下载
+                {/* Error / timeout message */}
+                {(preview.error || getEffectiveStatus(preview) === "timed_out") && (
+                  <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 space-y-1">
+                    <p className="text-xs font-medium text-destructive">
+                      {getEffectiveStatus(preview) === "timed_out" ? "超时提示" : "错误信息"}
+                    </p>
+                    <p className="text-sm text-destructive/90 break-words font-mono">
+                      {preview.error || "任务已超过30分钟未完成，可能已丢失。建议删除后重新生成。"}
+                    </p>
+                  </div>
+                )}
+
+                {/* Progress */}
+                {getEffectiveStatus(preview) === "in_progress" && preview.progress != null && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">生成进度</p>
+                    <Progress value={preview.progress} className="h-2" />
+                    <p className="text-xs text-muted-foreground text-right">{preview.progress}%</p>
+                  </div>
+                )}
+
+                {/* Metadata */}
+                <div className="space-y-2.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">ID</span>
+                    <span className="font-mono text-xs text-muted-foreground">#{preview.id}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">状态</span>
+                    <StatusBadge status={getEffectiveStatus(preview)} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">模型</span>
+                    <span className="font-mono text-xs">{getModelName(preview)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">模式</span>
+                    <span className="text-sm">{MODE_LABELS[preview.mode] || preview.mode}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">尺寸</span>
+                    <span className="text-sm">{preview.size}</span>
+                  </div>
+                  {preview.type === "video" && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">时长</span>
+                      <span className="text-sm">
+                        {formatDuration(preview.num_frames, preview.frame_rate)}
+                        {preview.num_frames && (
+                          <span className="text-muted-foreground ml-1">({preview.num_frames}f)</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">创建时间</span>
+                    <span className="text-sm">{formatDateTime(preview.created_at)}</span>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col gap-2 pt-2 border-t">
+                  {(preview.image_url || preview.video_url) && (
+                    <a
+                      href={preview.video_url || preview.image_url!}
+                      download
+                    >
+                      <Button variant="outline" size="sm" className="w-full">
+                        <Download className="h-4 w-4 mr-2" />
+                        下载
+                      </Button>
+                    </a>
+                  )}
+                  <Button size="sm" onClick={() => handleRegenerate(preview)} className="w-full">
+                    <Wand2 className="h-4 w-4 mr-2" />
+                    重新生成
                   </Button>
-                </a>
-              )}
-              <Button size="sm" onClick={() => handleRegenerate(preview)} className="flex-1">
-                <Wand2 className="h-4 w-4 mr-2" />
-                重新生成
-              </Button>
+                </div>
+              </div>
             </div>
           </DialogContent>
         )}

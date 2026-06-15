@@ -34,17 +34,6 @@ const SENSENOVA_SIZES = [
   { ratio: "9:21", dim: "1344×3136", value: "1344x3136" },
 ];
 
-const COMMON_SIZES = [
-  { ratio: "1:1", dim: "1024×1024", value: "1024x1024" },
-  { ratio: "1:1", dim: "2048×2048", value: "2048x2048" },
-  { ratio: "3:2", dim: "1920×1280", value: "1920x1280" },
-  { ratio: "2:3", dim: "1280×1920", value: "1280x1920" },
-  { ratio: "4:3", dim: "1600×1200", value: "1600x1200" },
-  { ratio: "3:4", dim: "1200×1600", value: "1200x1600" },
-  { ratio: "16:9", dim: "1280×720", value: "1280x720" },
-  { ratio: "9:16", dim: "720×1280", value: "720x1280" },
-];
-
 export default function ImageGeneration() {
   const [searchParams] = useSearchParams();
   const [provider, setProvider] = useState("sensenova");
@@ -66,7 +55,7 @@ export default function ImageGeneration() {
     if (sp.get("size")) setSize(sp.get("size")!);
   }, [searchParams]);
 
-  const sizes = provider === "sensenova" ? SENSENOVA_SIZES : COMMON_SIZES;
+  const sizes = SENSENOVA_SIZES;
 
   // Auto-switch provider/mode when the other changes to an invalid combo
   useEffect(() => {
@@ -83,7 +72,7 @@ export default function ImageGeneration() {
 
   // Reset size when provider changes and current size isn't valid for the new provider
   useEffect(() => {
-    const validSizes = provider === "sensenova" ? SENSENOVA_SIZES : COMMON_SIZES;
+    const validSizes = SENSENOVA_SIZES;
     if (!validSizes.some((s) => s.value === size)) {
       setSize(validSizes[0].value);
     }

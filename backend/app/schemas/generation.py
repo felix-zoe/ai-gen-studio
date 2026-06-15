@@ -1,9 +1,10 @@
 """Generation schemas — request / response for image & video generation."""
 
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Image request ──────────────────────────────────────────────────────────────
@@ -53,6 +54,33 @@ class GenerationResponse(BaseModel):
     frame_rate: Optional[float] = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("input_images", mode="before")
+    @classmethod
+    def _deserialize_input_images(cls, v: object) -> list[str] | None:
+        """DB stores input_images as a JSON text string; decode it to a list."""
+        if v is None or isinstance(v, list):
+            return v  # type: ignore[return-value]
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, list) else None
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return None
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _ensure_utc_timezone(cls, v: object) -> object:
+        """SQLite strips timezone info on read; stamp UTC so JSON includes '+00:00'.
+
+        Without this, the serialized datetime has no timezone suffix and
+        JavaScript's Date() treats it as local time, causing the frontend's
+        stale-timeout check to misfire (e.g. off by 16 h for UTC+8 users).
+        """
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class GenerationListResponse(BaseModel):

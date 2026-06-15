@@ -15,6 +15,7 @@ from app.models.api_key import ApiKey, Provider
 from app.models.generation import Generation, GenerationMode, GenerationStatus
 from app.models.user import User
 from app.schemas.generation import GenerateImageRequest, GenerationResponse
+from app.api.routers.generations import _build_response
 from app.utils.cos import get_presigned_url, upload_file, upload_image_from_url
 
 router = APIRouter(prefix="/generate", tags=["generate"])
@@ -111,10 +112,8 @@ async def generate_image(
     db.commit()
     db.refresh(record)
 
-    # Build response with presigned URL
-    resp = GenerationResponse.model_validate(record)
-    resp.image_url = get_presigned_url(image_cos_key)
-    return resp
+    # Build response with presigned URLs
+    return _build_response(record)
 
 
 # ---------------------------------------------------------------------------
