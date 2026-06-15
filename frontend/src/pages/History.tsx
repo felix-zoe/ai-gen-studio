@@ -101,7 +101,7 @@ function getModelName(gen: Generation): string {
   return "agnes-image-2.1-flash";
 }
 
-function formatDuration(frames: number | null, fps: number | null): string {
+function formatDuration(frames: number | null | undefined, fps: number | null | undefined): string {
   if (!frames || !fps) return "-";
   return `${(frames / fps).toFixed(1)}s`;
 }
