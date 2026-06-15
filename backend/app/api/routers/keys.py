@@ -149,29 +149,28 @@ async def test_key(
 
 
 async def _test_sensenova(api_key: str) -> tuple[bool, str]:
-    """Issue a minimal request — a known-small model call."""
-    async with httpx.AsyncClient(timeout=30) as client:
+    """Send a malformed request to validate key without generating an image."""
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             "https://token.sensenova.cn/v1/images/generations",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": "sensenova-u1-fast", "prompt": "test", "n": 1, "size": "2048x2048"},
+            # 故意发送无效参数：认证通过后会快速返回 400/422，不会真正生成图片
+            json={"model": "invalid-model", "prompt": "", "n": 0, "size": "invalid"},
         )
     return _interpret(resp)
 
 
 async def _test_agnes(api_key: str) -> tuple[bool, str]:
-    async with httpx.AsyncClient(timeout=30) as client:
+    """Send a malformed request to validate key without generating an image."""
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             "https://apihub.agnes-ai.com/v1/images/generations",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": "agnes-image-2.1-flash",
-                "prompt": "test",
-                "extra_body": {"response_format": "url"},
-            },
+            # 故意发送无效参数：认证通过后会快速返回 400/422，不会真正生成图片
+            json={"model": "invalid-model", "prompt": ""},
         )
     return _interpret(resp)
 
@@ -183,4 +182,7 @@ def _interpret(resp: httpx.Response) -> tuple[bool, str]:
         return False, "API Key 无效或权限不足"
     if resp.status_code == 429:
         return True, "API Key 有效（当前请求过于频繁，请稍后再试）"
+    # 400/422/404 等说明认证已通过，只是参数校验失败
+    if resp.status_code in (400, 404, 422):
+        return True, "API Key 有效"
     return False, f"未知响应（HTTP {resp.status_code}）"
