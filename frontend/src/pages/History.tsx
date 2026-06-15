@@ -154,17 +154,12 @@ function GenerationThumbnail({ gen, size = 60 }: { gen: Generation; size?: numbe
 
   if (effective === "completed" && gen.type === "video" && gen.video_url) {
     return (
-      <div className="relative" style={{ width: size, height: size }}>
-        <video
-          src={gen.video_url}
-          muted
-          className="h-full w-full rounded-md object-cover"
-          style={{ pointerEvents: "none" }}
-        />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Film className="h-4 w-4 text-white drop-shadow-md" />
-        </div>
-      </div>
+      <video
+        src={gen.video_url}
+        muted
+        className="rounded-md object-cover"
+        style={{ width: size, height: size, pointerEvents: "none" }}
+      />
     );
   }
   if (effective === "completed" && gen.type === "image" && gen.image_url) {
@@ -209,11 +204,12 @@ export default function History() {
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [pageSize, setPageSize] = useState(10);
 
   const effectiveStatus = statusFilter === "all" ? undefined : statusFilter;
   const effectiveMode = modeFilter === "all" ? undefined : modeFilter;
 
-  const { data, isLoading, isError } = useGenerations(tab, page, 20, searchQuery, effectiveStatus, effectiveMode);
+  const { data, isLoading, isError } = useGenerations(tab, page, pageSize, searchQuery, effectiveStatus, effectiveMode);
   const deleteMutation = useDeleteGeneration();
   const batchDeleteMutation = useBatchDeleteGenerations();
 
@@ -221,6 +217,11 @@ export default function History() {
   useEffect(() => {
     setSelectedIds(new Set());
   }, [tab, searchQuery, statusFilter, modeFilter]);
+
+  // Reset page when pageSize changes
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) => {
@@ -315,16 +316,9 @@ export default function History() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">历史记录</h1>
-        <p className="text-muted-foreground">
-          查看已生成的图片和视频
-        </p>
-      </div>
-
-      {/* ── Tabs + View Toggle ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-4">
+    <div className="space-y-5">
+      {/* ── Tabs + View Toggle + Stats ─────────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
         <Tabs value={tab} onValueChange={(v) => { setTab(v); setPage(1); setSearchInput(""); setSearchQuery(""); setStatusFilter("all"); setModeFilter("all"); }}>
           <TabsList>
             <TabsTrigger value="image" className="flex items-center gap-2">
@@ -339,43 +333,50 @@ export default function History() {
         </Tabs>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-1 rounded-md border p-1">
-          <Button
-            variant={viewMode === "grid" ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setViewMode("grid")}
-            title="网格视图"
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={viewMode === "table" ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setViewMode("table")}
-            title="列表视图"
-          >
-            <List className="h-4 w-4" />
-          </Button>
+        <div className="flex items-center gap-3">
+          {data && mergedItems.length > 0 && (
+            <span className="text-[12px] text-muted-foreground">
+              共 {mergedItems.length} 条记录
+            </span>
+          )}
+          <div className="flex items-center gap-0.5 rounded-md bg-[hsl(var(--surface-1))] p-0.5">
+            <Button
+              variant={viewMode === "grid" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setViewMode("grid")}
+              title="网格视图"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant={viewMode === "table" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setViewMode("table")}
+              title="列表视图"
+            >
+              <List className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* ── Search + Filters ────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-lg bg-[hsl(var(--surface-1))] px-4 py-2.5">
         {/* Search */}
-        <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-[400px]">
+        <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-[360px]">
           <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="搜索提示词..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               onKeyDown={handleSearchKeyDown}
-              className="pl-8 h-9"
+              className="pl-8 h-8 bg-background"
             />
           </div>
-          <Button variant="outline" size="sm" onClick={handleSearch} className="h-9">
+          <Button variant="outline" size="sm" onClick={handleSearch} className="h-8 text-[13px]">
             搜索
           </Button>
           {searchQuery && (
@@ -383,7 +384,7 @@ export default function History() {
               variant="ghost"
               size="sm"
               onClick={() => { setSearchInput(""); setSearchQuery(""); setPage(1); }}
-              className="h-9 text-muted-foreground"
+              className="h-8 text-[13px] text-muted-foreground"
             >
               清除
             </Button>
@@ -392,7 +393,7 @@ export default function History() {
 
         {/* Status filter */}
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-[130px] h-9">
+          <SelectTrigger className="w-[120px] h-8 bg-background text-[13px]">
             <SelectValue placeholder="状态筛选" />
           </SelectTrigger>
           <SelectContent>
@@ -406,7 +407,7 @@ export default function History() {
 
         {/* Mode filter */}
         <Select value={modeFilter} onValueChange={(v) => { setModeFilter(v); setPage(1); }}>
-          <SelectTrigger className="w-[130px] h-9">
+          <SelectTrigger className="w-[120px] h-8 bg-background text-[13px]">
             <SelectValue placeholder="模式筛选" />
           </SelectTrigger>
           <SelectContent>
@@ -430,7 +431,7 @@ export default function History() {
 
       {/* ── Batch Action Bar ──────────────────────────────────────── */}
       {data && mergedItems.length > 0 && (
-        <div className="flex items-center justify-between rounded-md border bg-muted/30 px-4 py-2">
+        <div className="flex items-center justify-between rounded-lg border border-[hsl(var(--border-light))] bg-[hsl(var(--surface-1))] px-4 py-2">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -483,8 +484,19 @@ export default function History() {
 
       {/* ── Empty ─────────────────────────────────────────────────── */}
       {data && mergedItems.length === 0 && (
-        <div className="py-16 text-center text-muted-foreground">
-          <p>暂无 {tab === "image" ? "图片" : "视频"} 记录</p>
+        <div className="flex flex-col items-center justify-center py-20">
+          <svg className="h-16 w-16 text-primary/15 mb-4" viewBox="0 0 64 64" fill="none">
+            <rect x="8" y="8" width="48" height="48" rx="6" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M8 40L20 28L28 34L40 20L56 36V52H8V40Z" fill="currentColor" opacity="0.1" />
+            <path d="M8 40L20 28L28 34L40 20L56 36" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <circle cx="44" cy="20" r="5" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          <p className="text-[14px] font-medium text-foreground">
+            暂无{tab === "image" ? "图片" : "视频"}记录
+          </p>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            {tab === "image" ? "去图片生成页创建你的第一个作品吧" : "去视频生成页创建你的第一个作品吧"}
+          </p>
         </div>
       )}
 
@@ -499,7 +511,7 @@ export default function History() {
             return (
               <Card
                 key={gen.id}
-                className={`group overflow-hidden cursor-pointer hover:shadow-md transition-shadow ${
+                className={`group overflow-hidden cursor-pointer hover:shadow-sm transition-all duration-150 border-[hsl(var(--border-light))] ${
                   isFailedOrTimeout ? "border-destructive/40" : ""
                 } ${selectedIds.has(gen.id) ? "ring-2 ring-primary" : ""}`}
               >
@@ -659,10 +671,10 @@ export default function History() {
 
       {/* ── Table View ─────────────────────────────────────────────────── */}
       {data && mergedItems.length > 0 && viewMode === "table" && (
-        <div className="rounded-md border">
+        <div className="rounded-lg border border-[hsl(var(--border-light))] shadow-xs overflow-hidden">
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="bg-[hsl(var(--surface-1))] border-b border-[hsl(var(--border-light))] hover:bg-[hsl(var(--surface-1))]">
                 <TableHead className="w-[40px]">
                   <button
                     type="button"
@@ -670,7 +682,7 @@ export default function History() {
                     className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${
                       selectedIds.size === mergedItems.length && mergedItems.length > 0
                         ? "bg-primary border-primary"
-                        : "border-muted-foreground/40"
+                        : "border-muted-foreground/30 hover:border-muted-foreground/60"
                     }`}
                   >
                     {selectedIds.size === mergedItems.length && mergedItems.length > 0 && (
@@ -678,27 +690,27 @@ export default function History() {
                     )}
                   </button>
                 </TableHead>
-                <TableHead className="w-[60px]">#</TableHead>
-                <TableHead className="w-[70px]">预览</TableHead>
-                <TableHead>提示词</TableHead>
+                <TableHead className="w-[55px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                <TableHead className="w-[60px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">预览</TableHead>
+                <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">提示词</TableHead>
 
                 {tab === "image" ? (
                   <>
-                    <TableHead className="w-[90px]">尺寸</TableHead>
-                    <TableHead className="w-[90px]">模型</TableHead>
-                    <TableHead className="w-[80px]">模式</TableHead>
+                    <TableHead className="w-[95px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">尺寸</TableHead>
+                    <TableHead className="w-[100px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">模型</TableHead>
+                    <TableHead className="w-[75px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">模式</TableHead>
                   </>
                 ) : (
                   <>
-                    <TableHead className="w-[70px]">时长</TableHead>
-                    <TableHead className="w-[90px]">尺寸</TableHead>
-                    <TableHead className="w-[90px]">模型</TableHead>
+                    <TableHead className="w-[65px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">时长</TableHead>
+                    <TableHead className="w-[95px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">尺寸</TableHead>
+                    <TableHead className="w-[100px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">模型</TableHead>
                   </>
                 )}
 
-                <TableHead className="w-[100px]">状态</TableHead>
-                <TableHead className="w-[130px]">创建时间</TableHead>
-                <TableHead className="w-[110px]">操作</TableHead>
+                <TableHead className="w-[80px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">状态</TableHead>
+                <TableHead className="w-[100px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">时间</TableHead>
+                <TableHead className="w-[120px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -707,7 +719,16 @@ export default function History() {
                 const isFailedOrTimeout = effective === "failed" || effective === "timed_out";
 
                 return (
-                  <TableRow key={gen.id} className={isFailedOrTimeout ? "bg-destructive/5" : ""}>
+                  <TableRow
+                    key={gen.id}
+                    className={`group transition-colors duration-100 border-b border-[hsl(var(--border-light))] last:border-b-0 ${
+                      selectedIds.has(gen.id)
+                        ? "bg-[hsl(var(--accent))]"
+                        : isFailedOrTimeout
+                          ? "bg-destructive/[0.03]"
+                          : "hover:bg-[hsl(var(--surface-1))]"
+                    }`}
+                  >
                     {/* Selection checkbox */}
                     <TableCell>
                       <button
@@ -716,7 +737,7 @@ export default function History() {
                         className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${
                           selectedIds.has(gen.id)
                             ? "bg-primary border-primary"
-                            : "border-muted-foreground/40"
+                            : "border-muted-foreground/30 hover:border-muted-foreground/60"
                         }`}
                       >
                         {selectedIds.has(gen.id) && (
@@ -726,53 +747,61 @@ export default function History() {
                     </TableCell>
 
                     {/* ID */}
-                    <TableCell className="font-mono text-xs">
-                      #{gen.id}
+                    <TableCell className="font-mono text-[11px] text-muted-foreground">
+                      {gen.id}
                     </TableCell>
 
                     {/* Thumbnail */}
                     <TableCell>
-                      <GenerationThumbnail gen={gen} size={56} />
+                      <div
+                        className="cursor-pointer"
+                        onClick={() => setPreview(gen)}
+                      >
+                        <GenerationThumbnail gen={gen} size={44} />
+                      </div>
                     </TableCell>
 
                     {/* Prompt */}
-                    <TableCell
-                      className="max-w-[200px] truncate"
-                      title={gen.prompt}
-                    >
-                      {truncatePrompt(gen.prompt)}
+                    <TableCell className="max-w-[220px]">
+                      <p className="truncate text-[13px] text-foreground" title={gen.prompt}>
+                        {truncatePrompt(gen.prompt)}
+                      </p>
                       {isFailedOrTimeout && gen.error && (
-                        <p className="text-xs text-destructive/70 truncate mt-0.5" title={gen.error}>
+                        <p className="text-[11px] text-destructive/70 truncate mt-0.5" title={gen.error}>
                           {truncatePrompt(gen.error, 40)}
                         </p>
                       )}
                       {effective === "timed_out" && !gen.error && (
-                        <p className="text-xs text-destructive/70 mt-0.5">任务超时</p>
+                        <p className="text-[11px] text-destructive/70 mt-0.5">任务超时</p>
                       )}
                     </TableCell>
 
                     {/* Type-specific columns */}
                     {tab === "image" ? (
                       <>
-                        <TableCell className="text-xs">{gen.size}</TableCell>
-                        <TableCell className="text-xs font-mono text-[11px]">
-                          {getModelName(gen)}
+                        <TableCell className="text-[12px] text-muted-foreground">{gen.size}</TableCell>
+                        <TableCell>
+                          <span className="inline-block rounded bg-[hsl(var(--surface-2))] px-1.5 py-0.5 text-[11px] font-mono text-muted-foreground">
+                            {getModelName(gen)}
+                          </span>
                         </TableCell>
-                        <TableCell className="text-xs">
+                        <TableCell className="text-[12px] text-muted-foreground">
                           {MODE_LABELS[gen.mode] || gen.mode}
                         </TableCell>
                       </>
                     ) : (
                       <>
-                        <TableCell className="text-xs">
+                        <TableCell className="text-[12px] text-muted-foreground">
                           <span className="inline-flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             {formatDuration(gen.num_frames, gen.frame_rate)}
                           </span>
                         </TableCell>
-                        <TableCell className="text-xs">{gen.size}</TableCell>
-                        <TableCell className="text-xs font-mono text-[11px]">
-                          {getModelName(gen)}
+                        <TableCell className="text-[12px] text-muted-foreground">{gen.size}</TableCell>
+                        <TableCell>
+                          <span className="inline-block rounded bg-[hsl(var(--surface-2))] px-1.5 py-0.5 text-[11px] font-mono text-muted-foreground">
+                            {getModelName(gen)}
+                          </span>
                         </TableCell>
                       </>
                     )}
@@ -780,60 +809,82 @@ export default function History() {
                     {/* Status */}
                     <TableCell>
                       <div className="flex flex-col gap-1">
-                        <StatusBadge status={effective} />
-                        {(effective === "in_progress" || effective === "queued") && gen.progress != null && (
-                          <Progress value={gen.progress} className="h-1" />
+                        {effective === "completed" ? (
+                          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[hsl(var(--success))]">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--success))]" />
+                            完成
+                          </span>
+                        ) : effective === "failed" ? (
+                          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-destructive">
+                            <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+                            失败
+                          </span>
+                        ) : effective === "timed_out" ? (
+                          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-destructive">
+                            <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+                            超时
+                          </span>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[hsl(var(--primary))]">
+                              <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))] animate-pulse" />
+                              {effective === "queued" ? "排队" : "生成中"}
+                            </span>
+                            {gen.progress != null && (
+                              <div className="w-16">
+                                <Progress value={gen.progress} className="h-1" />
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     </TableCell>
 
                     {/* Created At */}
-                    <TableCell className="text-xs whitespace-nowrap">
+                    <TableCell className="text-[12px] text-muted-foreground whitespace-nowrap">
                       {formatRelativeTime(gen.created_at)}
                     </TableCell>
 
                     {/* Actions */}
                     <TableCell>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-7 w-7"
                           title="重新生成"
                           onClick={() => handleRegenerate(gen)}
                         >
-                          <Wand2 className="h-4 w-4" />
+                          <Wand2 className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-7 w-7"
                           title="预览"
                           onClick={() => setPreview(gen)}
                         >
-                          <Eye className="h-4 w-4" />
+                          <Eye className="h-3.5 w-3.5" />
                         </Button>
-
                         {(gen.image_url || gen.video_url) && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8"
+                            className="h-7 w-7"
                             title="下载"
                             onClick={() => downloadFile(gen.video_url || gen.image_url!)}
                           >
-                            <Download className="h-4 w-4" />
+                            <Download className="h-3.5 w-3.5" />
                           </Button>
                         )}
-
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                           title="删除"
                           onClick={() => setDeleteTarget(gen)}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </TableCell>
@@ -843,26 +894,43 @@ export default function History() {
             </TableBody>
           </Table>
 
-          {/* Pagination */}
-          <div className="flex items-center justify-between border-t px-4 py-3">
-            <p className="text-sm text-muted-foreground">
-              共 {data.total} 条
-            </p>
-            <div className="flex items-center gap-2">
+          {/* Table footer / pagination */}
+          <div className="flex items-center justify-between border-t border-[hsl(var(--border-light))] bg-[hsl(var(--surface-1))] px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <p className="text-[12px] text-muted-foreground">
+                共 {data.total} 条记录
+              </p>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[12px] text-muted-foreground">每页</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="h-7 rounded-md border border-[hsl(var(--border))] bg-background px-2 text-[12px] text-foreground outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+                <span className="text-[12px] text-muted-foreground">条</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
+                className="h-7 text-[12px]"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
                 上一页
               </Button>
-              <span className="text-sm text-muted-foreground">
+              <span className="text-[12px] text-muted-foreground px-2">
                 {page} / {totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
+                className="h-7 text-[12px]"
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
@@ -876,9 +944,24 @@ export default function History() {
       {/* ── Pagination for Grid View ─────────────────────────────── */}
       {data && mergedItems.length > 0 && viewMode === "grid" && (
         <div className="flex items-center justify-between px-4 py-3">
-          <p className="text-sm text-muted-foreground">
-            共 {data.total} 条
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-[13px] text-muted-foreground">
+              共 {data.total} 条记录
+            </p>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[13px] text-muted-foreground">每页</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="h-7 rounded-md border border-[hsl(var(--border))] bg-background px-2 text-[13px] text-foreground outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+              <span className="text-[13px] text-muted-foreground">条</span>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -888,7 +971,7 @@ export default function History() {
             >
               上一页
             </Button>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-[13px] text-muted-foreground">
               {page} / {totalPages}
             </span>
             <Button

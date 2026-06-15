@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Loader2, Upload, Wand2, Download, X } from "lucide-react";
+import { Loader2, Upload, Wand2, Download, X, RotateCcw } from "lucide-react";
 import { useGenerateImage, useUploadImage } from "@/hooks/useGeneration";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -12,27 +12,113 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 
 const SENSENOVA_SIZES = [
-  { ratio: "1:1", dim: "2048×2048", value: "2048x2048" },
-  { ratio: "2:3", dim: "1664×2496", value: "1664x2496" },
-  { ratio: "3:2", dim: "2496×1664", value: "2496x1664" },
-  { ratio: "3:4", dim: "1760×2368", value: "1760x2368" },
-  { ratio: "4:3", dim: "2368×1760", value: "2368x1760" },
-  { ratio: "4:5", dim: "1824×2272", value: "1824x2272" },
-  { ratio: "5:4", dim: "2272×1824", value: "2272x1824" },
-  { ratio: "16:9", dim: "2752×1536", value: "2752x1536" },
-  { ratio: "9:16", dim: "1536×2752", value: "1536x2752" },
-  { ratio: "21:9", dim: "3072×1376", value: "3072x1376" },
-  { ratio: "9:21", dim: "1344×3136", value: "1344x3136" },
+  { ratio: "1:1", dim: "2048×2048", value: "2048x2048", w: 1, h: 1 },
+  { ratio: "2:3", dim: "1664×2496", value: "1664x2496", w: 2, h: 3 },
+  { ratio: "3:2", dim: "2496×1664", value: "2496x1664", w: 3, h: 2 },
+  { ratio: "3:4", dim: "1760×2368", value: "1760x2368", w: 3, h: 4 },
+  { ratio: "4:3", dim: "2368×1760", value: "2368x1760", w: 4, h: 3 },
+  { ratio: "4:5", dim: "1824×2272", value: "1824x2272", w: 4, h: 5 },
+  { ratio: "5:4", dim: "2272×1824", value: "2272x1824", w: 5, h: 4 },
+  { ratio: "16:9", dim: "2752×1536", value: "2752x1536", w: 16, h: 9 },
+  { ratio: "9:16", dim: "1536×2752", value: "1536x2752", w: 9, h: 16 },
+  { ratio: "21:9", dim: "3072×1376", value: "3072x1376", w: 21, h: 9 },
+  { ratio: "9:21", dim: "1344×3136", value: "1344x3136", w: 9, h: 21 },
 ];
+
+/* Visual aspect ratio picker */
+function RatioPicker({
+  sizes,
+  value,
+  onChange,
+}: {
+  sizes: typeof SENSENOVA_SIZES;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-4 gap-1.5">
+      {sizes.map((s) => {
+        const isActive = s.value === value;
+        const maxDim = 28;
+        const ratio = s.w / s.h;
+        let boxW: number, boxH: number;
+        if (ratio >= 1) {
+          boxW = maxDim;
+          boxH = maxDim / ratio;
+        } else {
+          boxH = maxDim;
+          boxW = maxDim * ratio;
+        }
+        return (
+          <button
+            key={s.value}
+            type="button"
+            onClick={() => onChange(s.value)}
+            className={`flex flex-col items-center gap-1 rounded-md px-1 py-2 transition-all ${
+              isActive
+                ? "bg-[hsl(var(--accent))] ring-1 ring-primary"
+                : "hover:bg-[hsl(var(--surface-2))]"
+            }`}
+          >
+            <div
+              className={`rounded-[2px] border transition-colors ${
+                isActive
+                  ? "border-primary bg-primary/15"
+                  : "border-[hsl(var(--border))] bg-[hsl(var(--surface-1))]"
+              }`}
+              style={{ width: boxW, height: boxH }}
+            />
+            <span
+              className={`text-[10px] font-medium leading-none ${
+                isActive ? "text-[hsl(var(--accent-foreground))]" : "text-muted-foreground"
+              }`}
+            >
+              {s.ratio}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* Empty state illustration */
+function EmptyIllustration() {
+  return (
+    <svg
+      className="mx-auto h-24 w-24 text-primary/20"
+      viewBox="0 0 96 96"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Canvas/frame */}
+      <rect x="16" y="12" width="64" height="72" rx="4" stroke="currentColor" strokeWidth="1.5" />
+      {/* Mountain landscape */}
+      <path d="M16 64L32 48L44 56L60 36L80 60V80H16V64Z" fill="currentColor" opacity="0.1" />
+      <path d="M16 64L32 48L44 56L60 36L80 60" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Sun */}
+      <circle cx="60" cy="28" r="6" stroke="currentColor" strokeWidth="1.5" />
+      {/* Sparkle */}
+      <path d="M76 16L78 20L82 22L78 24L76 28L74 24L70 22L74 20L76 16Z" fill="currentColor" opacity="0.3" />
+    </svg>
+  );
+}
+
+/* Skeleton loading */
+function SkeletonLoader() {
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <div className="skeleton h-4 w-32" />
+      <div className="skeleton aspect-square w-full rounded-lg" />
+      <div className="flex gap-3">
+        <div className="skeleton h-9 flex-1 rounded-md" />
+        <div className="skeleton h-9 flex-1 rounded-md" />
+      </div>
+    </div>
+  );
+}
 
 export default function ImageGeneration() {
   const [searchParams] = useSearchParams();
@@ -57,20 +143,14 @@ export default function ImageGeneration() {
 
   const sizes = SENSENOVA_SIZES;
 
-  // Auto-switch provider/mode when the other changes to an invalid combo
   useEffect(() => {
-    if (mode === "img2img") {
-      setProvider("agnes");
-    }
+    if (mode === "img2img") setProvider("agnes");
   }, [mode]);
 
   useEffect(() => {
-    if (provider === "sensenova" && mode === "img2img") {
-      setMode("text2img");
-    }
+    if (provider === "sensenova" && mode === "img2img") setMode("text2img");
   }, [provider]);
 
-  // Reset size when provider changes and current size isn't valid for the new provider
   useEffect(() => {
     const validSizes = SENSENOVA_SIZES;
     if (!validSizes.some((s) => s.value === size)) {
@@ -98,7 +178,6 @@ export default function ImageGeneration() {
     } catch {
       // error handled by mutation
     }
-    // Reset so the same file(s) can be selected again
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -130,26 +209,21 @@ export default function ImageGeneration() {
   };
 
   const result = generateMutation.data;
+  const isPending = generateMutation.isPending;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">图片生成</h1>
-      </div>
+    <div className="flex gap-0 min-h-[calc(100vh-120px)]">
+      {/* Left: Form panel */}
+      <div className="w-[380px] shrink-0 border-r border-[hsl(var(--border-light))] px-6 overflow-y-auto">
+        <div className="space-y-6">
+          {/* Model & Mode */}
+          <div className="space-y-4">
+            <p className="section-header">模型设置</p>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Form */}
-        <Card>
-          <CardHeader>
-            <CardTitle>参数设置</CardTitle>
-            <CardDescription>选择模型和输入提示词</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Model */}
             <div className="space-y-2">
-              <Label>模型</Label>
+              <Label className="text-[13px] font-medium">模型</Label>
               <Select value={provider} onValueChange={setProvider}>
-                <SelectTrigger>
+                <SelectTrigger className="h-10">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -159,11 +233,10 @@ export default function ImageGeneration() {
               </Select>
             </div>
 
-            {/* Mode */}
             <div className="space-y-2">
-              <Label>生成模式</Label>
+              <Label className="text-[13px] font-medium">生成模式</Label>
               <Select value={mode} onValueChange={setMode}>
-                <SelectTrigger>
+                <SelectTrigger className="h-10">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -174,57 +247,63 @@ export default function ImageGeneration() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
-            {/* Size */}
-            <div className="space-y-2">
-              <Label>画面尺寸</Label>
-              <Select value={size} onValueChange={setSize}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {sizes.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.ratio} ({s.dim})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Divider */}
+          <div className="h-px bg-[hsl(var(--border-light))]" />
 
-            {/* Reference images (img2img only) */}
-            {mode === "img2img" && (
-              <div className="space-y-2">
-                <Label>参考图片</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                  <Button
-                    variant="outline"
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadMutation.isPending}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    {uploadMutation.isPending ? "上传中..." : "选择图片"}
-                  </Button>
-                </div>
+          {/* Size picker */}
+          <div className="space-y-3">
+            <p className="section-header">画面尺寸</p>
+            <RatioPicker sizes={sizes} value={size} onChange={setSize} />
+            <p className="text-[11px] text-muted-foreground text-center">
+              {sizes.find((s) => s.value === size)?.dim}
+            </p>
+          </div>
 
-                {/* Preview grid */}
+          {/* Divider */}
+          <div className="h-px bg-[hsl(var(--border-light))]" />
+
+          {/* Reference images (img2img only) */}
+          {mode === "img2img" && (
+            <>
+              <div className="space-y-3">
+                <p className="section-header">参考图片</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadMutation.isPending}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-[hsl(var(--border))] py-4 text-[13px] text-muted-foreground transition-all hover:border-primary hover:text-primary hover:bg-[hsl(var(--accent))]"
+                >
+                  {uploadMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      上传中...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4" />
+                      点击上传参考图片
+                    </>
+                  )}
+                </button>
+
                 {previewUrls.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2 mt-2">
+                  <div className="grid grid-cols-3 gap-2">
                     {previewUrls.map((url, index) => (
                       <div key={index} className="relative group">
                         <img
                           src={url}
                           alt={`参考图片 ${index + 1}`}
-                          className="h-24 w-full rounded-md object-cover"
+                          className="h-20 w-full rounded-md object-cover"
                         />
                         <button
                           type="button"
@@ -237,112 +316,112 @@ export default function ImageGeneration() {
                     ))}
                   </div>
                 )}
-
-                {uploadMutation.isPending && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    上传中...
-                  </div>
-                )}
               </div>
-            )}
+              <div className="h-px bg-[hsl(var(--border-light))]" />
+            </>
+          )}
 
-            {/* Prompt */}
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <Label>提示词</Label>
-                <span className="text-xs text-muted-foreground">{prompt.length}/4000</span>
-              </div>
-              <Textarea
-                placeholder="描述你想要的图片..."
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                maxLength={4000}
-                rows={4}
-              />
+          {/* Prompt */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="section-header">提示词</p>
+              <span className="text-[11px] text-muted-foreground">
+                {prompt.length}/4000
+              </span>
             </div>
+            <Textarea
+              placeholder="描述你想要的图片内容，越详细效果越好..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              maxLength={4000}
+              className="min-h-[120px] resize-y text-[14px] leading-relaxed"
+            />
+          </div>
 
-            {/* Actions */}
-            <div className="flex gap-2">
-              <Button
-                onClick={handleGenerate}
-                disabled={generateMutation.isPending || !prompt.trim()}
-                className="flex-1"
-              >
-                {generateMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    生成中...
-                  </>
-                ) : (
-                  <>
-                    <Wand2 className="h-4 w-4" />
-                    生成
-                  </>
-                )}
-              </Button>
-              <Button variant="outline" onClick={resetForm}>
-                重置
-              </Button>
-            </div>
+          {/* Actions */}
+          <div className="flex gap-2 pt-2">
+            <Button
+              onClick={handleGenerate}
+              disabled={isPending || !prompt.trim()}
+              className="flex-1 h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-medium rounded-lg"
+            >
+              {isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  生成中...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="h-4 w-4 mr-1.5" />
+                  生成图片
+                </>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={resetForm}
+              className="h-11 px-4 text-muted-foreground hover:text-foreground"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          </div>
 
-            {generateMutation.isError && (
-              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          {/* Error */}
+          {generateMutation.isError && (
+            <div className="flex items-start gap-2.5 rounded-lg border-l-[3px] border-destructive bg-destructive/5 px-4 py-3">
+              <p className="text-[13px] text-destructive">
                 {generateMutation.error instanceof Error
                   ? generateMutation.error.message
-                  : "生成失败"}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  : "生成失败，请稍后重试"}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
 
-        {/* Result */}
-        <Card>
-          <CardHeader>
-            <CardTitle>生成结果</CardTitle>
-            <CardDescription>生成的图片将显示在这里</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {generateMutation.isPending ? (
-              <div className="flex aspect-square items-center justify-center rounded-lg border border-dashed">
-                <div className="text-center">
-                  <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
-                  <p className="mt-2 text-sm text-muted-foreground">正在生成...</p>
-                </div>
-              </div>
-            ) : result?.image_url ? (
-              <div className="space-y-3">
-                <img
-                  src={result.image_url}
-                  alt={result.prompt}
-                  className="w-full rounded-lg"
-                />
-                <div className="flex gap-2">
-                  <a
-                    href={result.image_url!}
-                    download
-                    className="flex-1"
+      {/* Right: Result area */}
+      <div className="flex-1 pl-8 flex items-start justify-center">
+        <div className="w-full max-w-2xl">
+          {isPending ? (
+            <SkeletonLoader />
+          ) : result?.image_url ? (
+            <div className="space-y-4 animate-fade-in">
+              <img
+                src={result.image_url}
+                alt={result.prompt}
+                className="w-full rounded-lg shadow-sm"
+              />
+              <div className="flex items-center gap-3 pt-1">
+                <a href={result.image_url!} download className="flex-1">
+                  <Button
+                    variant="outline"
+                    className="w-full h-10 rounded-lg"
                   >
-                    <Button variant="outline" size="sm" className="w-full">
-                      <Download className="h-4 w-4" />
-                      下载
-                    </Button>
-                  </a>
-                  <Button size="sm" onClick={() => generateMutation.reset()} className="flex-1">
-                    继续生成
+                    <Download className="h-4 w-4 mr-1.5" />
+                    下载图片
                   </Button>
-                </div>
+                </a>
+                <Button
+                  className="flex-1 h-10 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground"
+                  onClick={() => generateMutation.reset()}
+                >
+                  <Wand2 className="h-4 w-4 mr-1.5" />
+                  继续生成
+                </Button>
               </div>
-            ) : (
-              <div className="flex aspect-square items-center justify-center rounded-lg border border-dashed">
-                <div className="text-center text-muted-foreground">
-                  <Upload className="mx-auto h-8 w-8" />
-                  <p className="mt-2 text-sm">填写参数并点击生成</p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-24">
+              <EmptyIllustration />
+              <p className="mt-4 text-[14px] font-medium text-foreground">
+                等待生成
+              </p>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                在左侧填写提示词，点击生成按钮创建图片
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
