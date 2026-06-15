@@ -149,19 +149,19 @@ async def test_key(
 
 
 async def _test_sensenova(api_key: str) -> tuple[bool, str]:
-    """Send a malformed request to validate key without generating an image."""
+    """Send a minimal request to validate key."""
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             "https://token.sensenova.cn/v1/images/generations",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            # 故意发送无效参数：认证通过后会快速返回 400/422，不会真正生成图片
-            json={"model": "invalid-model", "prompt": "", "n": 0, "size": "invalid"},
+            # 使用有效 model，但省略 prompt 触发快速校验失败
+            json={"model": "sensenova-u1-fast", "n": 0},
         )
     return _interpret(resp)
 
 
 async def _test_agnes(api_key: str) -> tuple[bool, str]:
-    """Send a malformed request to validate key without generating an image."""
+    """Send a minimal request to validate key."""
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             "https://apihub.agnes-ai.com/v1/images/generations",
@@ -169,20 +169,36 @@ async def _test_agnes(api_key: str) -> tuple[bool, str]:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            # 故意发送无效参数：认证通过后会快速返回 400/422，不会真正生成图片
-            json={"model": "invalid-model", "prompt": ""},
+            # 使用有效 model，但省略必要参数触发快速校验失败
+            json={"model": "agnes-image-2.1-flash"},
         )
     return _interpret(resp)
 
 
 def _interpret(resp: httpx.Response) -> tuple[bool, str]:
+    """解读上游响应，判断 Key 是否有效。
+
+    返回 (ok, message)：
+    - ok=True: Key 确定有效
+    - ok=False: Key 无效或无法验证
+    """
+    # ── 确定有效 ──────────────────────────────────────────────────────────────
     if resp.status_code == 200:
+        # 无论响应体是成功结果还是校验错误，能到 200 说明认证已通过
         return True, "API Key 有效"
-    if resp.status_code in (401, 403):
-        return False, "API Key 无效或权限不足"
     if resp.status_code == 429:
         return True, "API Key 有效（当前请求过于频繁，请稍后再试）"
-    # 400/422/404 等说明认证已通过，只是参数校验失败
-    if resp.status_code in (400, 404, 422):
+    # 400/422 说明认证已通过，只是参数校验失败
+    if resp.status_code in (400, 422):
         return True, "API Key 有效"
-    return False, f"未知响应（HTTP {resp.status_code}）"
+
+    # ── 确定无效 ──────────────────────────────────────────────────────────────
+    if resp.status_code in (401, 403):
+        return False, "API Key 无效或权限不足"
+
+    # ── 无法判断（服务问题）──────────────────────────────────────────────────
+    if resp.status_code in (502, 503, 504):
+        return False, "上游服务暂时不可用，无法验证 Key，请稍后再试"
+
+    # ── 未知情况 ──────────────────────────────────────────────────────────────
+    return False, f"无法验证（HTTP {resp.status_code}）"
