@@ -14,6 +14,7 @@ import {
   useVideoGeneration,
   useUploadImage,
 } from "@/hooks/useGeneration";
+import { downloadFile } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -622,15 +623,14 @@ export default function VideoGeneration() {
                 />
               </div>
               <div className="flex items-center gap-3 pt-1">
-                <a href={pollData.video_url} download className="flex-1">
-                  <Button
-                    variant="outline"
-                    className="w-full h-10 rounded-lg"
-                  >
-                    <Download className="h-4 w-4 mr-1.5" />
-                    下载视频
-                  </Button>
-                </a>
+                <Button
+                  variant="outline"
+                  className="flex-1 h-10 rounded-lg"
+                  onClick={() => downloadFile(pollData.video_url!)}
+                >
+                  <Download className="h-4 w-4 mr-1.5" />
+                  下载视频
+                </Button>
                 <Button
                   className="flex-1 h-10 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground"
                   onClick={resetForm}
