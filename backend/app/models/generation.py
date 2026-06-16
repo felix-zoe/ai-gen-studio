@@ -58,6 +58,7 @@ class Generation(Base):
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     size: Mapped[str] = mapped_column(String(32), nullable=False)
     cos_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    thumbnail_cos_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Video-specific fields
     upstream_video_id: Mapped[str | None] = mapped_column(

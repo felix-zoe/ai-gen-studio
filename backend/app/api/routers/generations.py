@@ -42,6 +42,10 @@ async def _build_response(row: Generation) -> GenerationResponse:
     else:
         item.image_url = await async_get_presigned_url(row.cos_key)
 
+    # Thumbnail URL for image generations
+    if row.thumbnail_cos_key:
+        item.thumbnail_url = await async_get_presigned_url(row.thumbnail_cos_key)
+
     # Generate presigned URLs for reference/input images
     if row.input_images:
         try:

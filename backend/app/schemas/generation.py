@@ -43,6 +43,7 @@ class GenerationResponse(BaseModel):
     size: str
     image_url: Optional[str] = None  # presigned URL
     video_url: Optional[str] = None  # presigned URL (video only)
+    thumbnail_url: Optional[str] = None  # presigned URL for thumbnail (image only)
     input_images: Optional[list[str]] = None  # presigned URLs for reference/input images
     progress: Optional[int] = None
     status: str

@@ -11,3 +11,4 @@ httpx>=0.28.0
 cryptography>=44.0.0
 python-multipart>=0.0.12
 cos-python-sdk-v5>=1.9.29
+Pillow>=10.0.0

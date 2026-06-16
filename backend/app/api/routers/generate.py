@@ -14,7 +14,7 @@ from app.models.generation import Generation, GenerationMode, GenerationStatus, 
 from app.models.user import User
 from app.schemas.generation import GenerateImageRequest, GenerationResponse
 from app.api.routers.generations import _build_response
-from app.utils.cos import upload_image_from_url
+from app.utils.cos import upload_image_with_thumbnail
 
 router = APIRouter(prefix="/generate", tags=["generate"])
 
@@ -51,9 +51,9 @@ async def generate_image(
 
     try:
         if provider == Provider.sensenova:
-            image_cos_key = await _call_sensenova(api_key, mode, body, user.id)
+            image_cos_key, thumbnail_cos_key = await _call_sensenova(api_key, mode, body, user.id)
         else:
-            image_cos_key = await _call_agnes(api_key, mode, body, user.id)
+            image_cos_key, thumbnail_cos_key = await _call_agnes(api_key, mode, body, user.id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -85,6 +85,7 @@ async def generate_image(
         prompt=body.prompt,
         size=body.size,
         cos_key=image_cos_key,
+        thumbnail_cos_key=thumbnail_cos_key,
         input_images=json.dumps(body.image_cos_keys) if body.image_cos_keys else None,
         status=GenerationStatus.completed,
     )
@@ -103,8 +104,8 @@ async def generate_image(
 
 async def _call_sensenova(
     api_key: str, mode: GenerationMode, body: GenerateImageRequest, user_id: int
-) -> str:
-    """Call SenseNova API → download image → upload to COS → return COS key."""
+) -> tuple[str, str | None]:
+    """Call SenseNova API → download image → upload original + thumbnail to COS."""
     async with httpx.AsyncClient(timeout=120) as client:
         payload: dict = {
             "model": "sensenova-u1-fast",
@@ -130,13 +131,13 @@ async def _call_sensenova(
         if not image_url:
             raise RuntimeError("No image URL in SenseNova response")
 
-    return await upload_image_from_url(image_url, user_id)
+    return await upload_image_with_thumbnail(image_url, user_id)
 
 
 async def _call_agnes(
     api_key: str, mode: GenerationMode, body: GenerateImageRequest, user_id: int
-) -> str:
-    """Call Agnes API → download image → upload to COS → return COS key."""
+) -> tuple[str, str | None]:
+    """Call Agnes API → download image → upload original + thumbnail to COS."""
     extra_body: dict = {"response_format": "url"}
     if mode == GenerationMode.img2img and body.image_urls:
         extra_body["image"] = body.image_urls
@@ -166,7 +167,7 @@ async def _call_agnes(
         if not image_url:
             raise RuntimeError("No image URL in Agnes response")
 
-    return await upload_image_from_url(image_url, user_id)
+    return await upload_image_with_thumbnail(image_url, user_id)
 
 
 # ---------------------------------------------------------------------------

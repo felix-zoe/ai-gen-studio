@@ -1,6 +1,7 @@
 """Tencent Cloud COS utilities — upload & presigned URL."""
 
 import asyncio
+import io
 import mimetypes
 import uuid
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from functools import lru_cache
 from typing import Optional
 
 import httpx
+from PIL import Image
 from qcloud_cos import CosConfig, CosS3Client
 
 from app.core.config import settings
@@ -191,6 +193,26 @@ async def upload_image_from_url(image_url: str, user_id: int) -> str:
     return await async_upload_file(content, user_id, filename)
 
 
+async def upload_image_with_thumbnail(image_url: str, user_id: int) -> tuple[str, str | None]:
+    """
+    Download an image from *image_url*, upload original + thumbnail to COS.
+
+    Returns (cos_key, thumbnail_cos_key). thumbnail_cos_key may be None on failure.
+    """
+    async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+        resp = await client.get(image_url)
+        resp.raise_for_status()
+        content = resp.content
+
+    filename = image_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
+    cos_key = await async_upload_file(content, user_id, filename)
+
+    # Generate and upload thumbnail
+    thumbnail_cos_key = await async_upload_thumbnail(content, user_id, cos_key)
+
+    return cos_key, thumbnail_cos_key
+
+
 async def upload_video_from_url(video_url: str, user_id: int) -> str:
     """
     Download a video from *video_url* and upload it to COS.
@@ -204,3 +226,67 @@ async def upload_video_from_url(video_url: str, user_id: int) -> str:
 
     filename = video_url.rsplit("/", 1)[-1].split("?")[0] or "video.mp4"
     return await async_upload_file(content, user_id, filename)
+
+
+# ---------------------------------------------------------------------------
+# Thumbnail generation
+# ---------------------------------------------------------------------------
+
+_THUMBNAIL_MAX_WIDTH = 200
+
+
+def create_thumbnail(image_bytes: bytes) -> Optional[bytes]:
+    """
+    Create a thumbnail from image bytes.
+
+    Resizes to max 200px width (keeping aspect ratio), returns JPEG bytes.
+    Returns None on failure.
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        # Convert RGBA/P to RGB for JPEG output
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        # Resize if wider than max
+        if img.width > _THUMBNAIL_MAX_WIDTH:
+            ratio = _THUMBNAIL_MAX_WIDTH / img.width
+            new_size = (_THUMBNAIL_MAX_WIDTH, int(img.height * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=75, optimize=True)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def upload_thumbnail(image_bytes: bytes, user_id: int, original_key: str) -> Optional[str]:
+    """
+    Create and upload a thumbnail to COS.
+
+    Returns the thumbnail COS key, or None on failure.
+    Key format: same path as original with ``_thumb.jpg`` suffix.
+    """
+    thumb_bytes = create_thumbnail(image_bytes)
+    if not thumb_bytes:
+        return None
+    _check_configured()
+    client = _get_client()
+    thumb_key = original_key.rsplit(".", 1)[0] + "_thumb.jpg"
+    try:
+        client.put_object(
+            Bucket=settings.COS_BUCKET,
+            Body=thumb_bytes,
+            Key=thumb_key,
+            ContentType="image/jpeg",
+        )
+        return thumb_key
+    except Exception:
+        return None
+
+
+async def async_upload_thumbnail(
+    image_bytes: bytes, user_id: int, original_key: str
+) -> Optional[str]:
+    """Async wrapper around :func:`upload_thumbnail`."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, upload_thumbnail, image_bytes, user_id, original_key)

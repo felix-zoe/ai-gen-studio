@@ -7,6 +7,7 @@ export interface Generation {
   size: string;
   image_url?: string | null;
   video_url?: string | null;
+  thumbnail_url?: string | null;  // presigned URL for thumbnail (image list views)
   input_images?: string[] | null;  // presigned URLs for reference/input images
   progress?: number | null;
   status: string;

@@ -157,20 +157,25 @@ function GenerationThumbnail({ gen, size = 60 }: { gen: Generation; size?: numbe
       <video
         src={gen.video_url}
         muted
+        preload="metadata"
         className="rounded-md object-cover"
         style={{ width: size, height: size, pointerEvents: "none" }}
       />
     );
   }
-  if (effective === "completed" && gen.type === "image" && gen.image_url) {
-    return (
-      <img
-        src={gen.image_url}
-        alt={gen.prompt}
-        className="rounded-md object-cover"
-        style={{ width: size, height: size }}
-      />
-    );
+  if (effective === "completed" && gen.type === "image") {
+    const src = gen.thumbnail_url || gen.image_url;
+    if (src) {
+      return (
+        <img
+          src={src}
+          alt={gen.prompt}
+          loading="lazy"
+          className="rounded-md object-cover"
+          style={{ width: size, height: size }}
+        />
+      );
+    }
   }
   // Placeholder for no preview / in-progress / failed / timed-out
   return (
@@ -541,13 +546,15 @@ export default function History() {
                         <video
                           src={gen.video_url}
                           muted
+                          preload="metadata"
                           className="h-full w-full object-cover"
                           style={{ pointerEvents: "none" }}
                         />
-                      ) : gen.type === "image" && gen.image_url ? (
+                      ) : gen.type === "image" ? (
                         <img
-                          src={gen.image_url}
+                          src={gen.thumbnail_url || gen.image_url || ""}
                           alt={gen.prompt}
+                          loading="lazy"
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -1033,6 +1040,7 @@ export default function History() {
                           <img
                             src={url}
                             alt={`参考图片 ${i + 1}`}
+                            loading="lazy"
                             className="h-24 w-24 object-cover transition-transform group-hover:scale-105"
                           />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
