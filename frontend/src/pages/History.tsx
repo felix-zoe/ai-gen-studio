@@ -847,7 +847,7 @@ export default function History() {
 
                     {/* Actions */}
                     <TableCell>
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                      <div className="flex items-center gap-0.5">
                         <Button
                           variant="ghost"
                           size="icon"
