@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2, Upload, Wand2, Download, X, RotateCcw } from "lucide-react";
 import { useGenerateImage, useUploadImage } from "@/hooks/useGeneration";
-import { downloadFile } from "@/lib/utils";
+import { downloadGeneration } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -406,7 +406,7 @@ export default function ImageGeneration() {
                 <Button
                   variant="outline"
                   className="flex-1 h-10 rounded-lg"
-                  onClick={() => downloadFile(result.image_url!)}
+                  onClick={() => downloadGeneration(result.id, "image")}
                 >
                   <Download className="h-4 w-4 mr-1.5" />
                   下载图片

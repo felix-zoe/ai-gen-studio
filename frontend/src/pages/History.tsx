@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { downloadFile } from "@/lib/utils";
+import { downloadGeneration } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -620,7 +620,7 @@ export default function History() {
                           title="下载"
                           onClick={(e) => {
                             e.stopPropagation();
-                            downloadFile(gen.video_url || gen.image_url!);
+                            downloadGeneration(gen.id, gen.video_url ? "video" : "image");
                           }}
                         >
                           <Download className="h-3.5 w-3.5" />
@@ -872,7 +872,7 @@ export default function History() {
                             size="icon"
                             className="h-7 w-7"
                             title="下载"
-                            onClick={() => downloadFile(gen.video_url || gen.image_url!)}
+                            onClick={() => downloadGeneration(gen.id, gen.video_url ? "video" : "image")}
                           >
                             <Download className="h-3.5 w-3.5" />
                           </Button>
@@ -1151,7 +1151,7 @@ export default function History() {
                       variant="outline"
                       size="sm"
                       className="w-full"
-                      onClick={() => downloadFile(preview.video_url || preview.image_url!)}
+                      onClick={() => downloadGeneration(preview.id, preview.video_url ? "video" : "image")}
                     >
                       <Download className="h-4 w-4 mr-2" />
                       下载

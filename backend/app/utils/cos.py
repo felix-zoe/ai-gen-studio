@@ -119,6 +119,29 @@ def delete_object(cos_key: str) -> bool:
         return False
 
 
+def download_object(cos_key: str) -> Optional[tuple[bytes, str]]:
+    """
+    Download a COS object and return (bytes, content_type).
+
+    Returns ``None`` when *cos_key* is falsy or on error.
+    """
+    if not cos_key:
+        return None
+    try:
+        _check_configured()
+        client = _get_client()
+        resp = client.get_object(
+            Bucket=settings.COS_BUCKET,
+            Key=cos_key,
+        )
+        content_type = resp.get("Content-Type", "application/octet-stream")
+        # Body is a streaming iterator — read all bytes
+        body = resp["Body"].read()
+        return body, content_type
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Async wrappers — run blocking COS SDK calls in a thread executor
 # ---------------------------------------------------------------------------
@@ -140,6 +163,12 @@ async def async_delete_object(cos_key: str) -> bool:
     """Async wrapper around :func:`delete_object` (runs in thread executor)."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, delete_object, cos_key)
+
+
+async def async_download_object(cos_key: str) -> Optional[tuple[bytes, str]]:
+    """Async wrapper around :func:`download_object` (runs in thread executor)."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, download_object, cos_key)
 
 
 # ---------------------------------------------------------------------------

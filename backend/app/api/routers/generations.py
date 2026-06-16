@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,7 +16,7 @@ from app.models.api_key import Provider
 from app.models.generation import Generation, GenerationMode, GenerationStatus, GenerationType
 from app.models.user import User
 from app.schemas.generation import GenerationListResponse, GenerationResponse, BatchDeleteRequest
-from app.utils.cos import async_get_presigned_url, upload_video_from_url, async_delete_object
+from app.utils.cos import async_get_presigned_url, upload_video_from_url, async_delete_object, async_download_object
 
 logger = logging.getLogger("uvicorn")
 
@@ -143,6 +144,41 @@ async def list_generations(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/generations/{id}/download
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{generation_id}/download")
+async def download_generation(
+    generation_id: int,
+    type: str = Query("image", pattern=r"^(image|video)$"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download the generated image or video via backend proxy (avoids CORS)."""
+    row = db.get(Generation, generation_id)
+    if not row or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    cos_key = row.video_cos_key if type == "video" else row.cos_key
+    if not cos_key:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    result = await async_download_object(cos_key)
+    if not result:
+        raise HTTPException(status_code=502, detail="无法从存储下载文件")
+
+    content, content_type = result
+    # 从 cos_key 提取文件名
+    filename = cos_key.rsplit("/", 1)[-1] if "/" in cos_key else "download"
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
