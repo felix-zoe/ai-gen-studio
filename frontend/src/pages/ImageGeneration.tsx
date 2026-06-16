@@ -28,6 +28,16 @@ const SENSENOVA_SIZES = [
   { ratio: "9:21", dim: "1344×3136", value: "1344x3136", w: 9, h: 21 },
 ];
 
+const AGNES_FLASH_SIZES = [
+  { ratio: "1:1", dim: "1024×1024", value: "1024x1024", w: 1, h: 1 },
+  { ratio: "4:3", dim: "1024×768", value: "1024x768", w: 4, h: 3 },
+  { ratio: "3:2", dim: "1152×768", value: "1152x768", w: 3, h: 2 },
+  { ratio: "16:9", dim: "1024×576", value: "1024x576", w: 16, h: 9 },
+  { ratio: "3:4", dim: "768×1024", value: "768x1024", w: 3, h: 4 },
+  { ratio: "9:16", dim: "720×1280", value: "720x1280", w: 9, h: 16 },
+  { ratio: "9:16", dim: "768×1366", value: "768x1366", w: 9, h: 16 },
+];
+
 /* Visual aspect ratio picker */
 function RatioPicker({
   sizes,
@@ -142,7 +152,7 @@ export default function ImageGeneration() {
     if (sp.get("size")) setSize(sp.get("size")!);
   }, [searchParams]);
 
-  const sizes = SENSENOVA_SIZES;
+  const sizes = provider === "agnes" ? AGNES_FLASH_SIZES : SENSENOVA_SIZES;
 
   useEffect(() => {
     if (mode === "img2img") setProvider("agnes");
@@ -153,7 +163,7 @@ export default function ImageGeneration() {
   }, [provider]);
 
   useEffect(() => {
-    const validSizes = SENSENOVA_SIZES;
+    const validSizes = provider === "agnes" ? AGNES_FLASH_SIZES : SENSENOVA_SIZES;
     if (!validSizes.some((s) => s.value === size)) {
       setSize(validSizes[0].value);
     }
